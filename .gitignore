@@ -1,0 +1,10 @@
+# Godot
+.godot/
+*.translation
+export.cfg
+# Build output (the web build is produced by CI)
+build/
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
