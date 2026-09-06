@@ -65,8 +65,10 @@ godot --headless --path . --export-release "Web" build/web/index.html
   registered in `surface_library.gd`. Add a terrain by adding one line there.
 - **Procedural test circuit** (`scripts/track/test_track.gd`): a 2.3 km closed loop
   extruded from a spline, split into surface segments in the order asphalt, dirt,
-  asphalt, sand, asphalt, ice, snow, asphalt, dirt. Grass shoulders, barrier walls,
-  start gate, and crates to knock about.
+  asphalt, sand, asphalt, ice, snow, asphalt, dirt. Each change of surface happens
+  through a 36 m blend zone of six intermediate grip bands, placed on the straightest
+  nearby road, and marked with white lines at both ends. Grass shoulders, barrier
+  walls, start gate, and crates to knock about.
 - **AI opponents** (`scripts/car/ai_driver.gd`): spline followers that slow for
   corners and low grip, hold a lane, and lean on the player when alongside.
 - **Chase camera** that follows the velocity vector so slides read on screen, with
@@ -84,6 +86,9 @@ first:
 |---|---|
 | Quicker / slower | `max_engine_force`, `top_speed`, `drag_coefficient` |
 | More / less grip | `tyre_grip`, or per surface `grip` in `surface_library.gd` |
+| Throttle pushes wide vs. holds line | `longitudinal_grip`, `min_drive_fraction` |
+| Tail wags / settles | `yaw_damping` |
+| Softer / harsher surface changes | `surface_blend_time` on the car, `transition_length` on the track |
 | Sharper turn-in | `max_steer_deg`, `steer_speed`, `peak_slip_angle_deg` |
 | Slidier handbrake | `handbrake_lateral_grip` |
 | Softer / stiffer ride | `spring_stiffness`, `damping_*` on each wheel |

@@ -49,11 +49,18 @@ const CONTROL_POINTS: Array[Vector3] = [
 @export var wall_height := 1.1
 @export var sample_step := 3.0
 @export var crate_count := 28
+## Length of the blend zone where one surface fades into the next (metres).
+@export var transition_length := 36.0
+## Number of discrete grip bands inside a blend zone.
+@export var transition_bands := 6
+## How far (metres) a surface boundary may move to land on the straightest nearby road.
+@export var transition_search := 60.0
 
 var curve := Curve3D.new()
 var length := 0.0
 var _frames: Array[Dictionary] = []   # pos, tangent, right, up, offset
-var _segments: Array = []             # [start_offset, end_offset, SurfaceType]
+var _segments: Array = []             # [start_offset, end_offset, SurfaceType], blend bands included
+var _boundaries: Array[float] = []    # centre offset of each surface change
 
 
 func _ready() -> void:
@@ -106,14 +113,64 @@ func _sample_frames() -> void:
 
 
 func _plan_segments() -> void:
-	_segments.clear()
+	# 1. Raw boundaries from the plan.
+	var types: Array[SurfaceType] = []
+	var bounds: Array[float] = []
 	var start := 0.0
 	for entry in SEGMENT_PLAN:
 		if start >= length:
 			break
 		var end := minf(start + float(entry[1]), length)
-		_segments.append([start, end, Surfaces.get_type(entry[0])])
+		types.append(Surfaces.get_type(entry[0]))
+		if end < length:
+			bounds.append(end)
 		start = end
+
+	# 2. Slide each boundary onto the straightest road nearby, keeping them in order.
+	var min_gap := transition_length + 20.0
+	for i in bounds.size():
+		bounds[i] = _straightest_offset_near(bounds[i], transition_search)
+		var floor_off := (bounds[i - 1] + min_gap) if i > 0 else min_gap
+		bounds[i] = clampf(bounds[i], floor_off, length - min_gap)
+	_boundaries = bounds
+
+	# 3. Emit road pieces: plain segments with a band of blended surfaces around each boundary.
+	_segments.clear()
+	var cursor := 0.0
+	var band_len := transition_length / float(transition_bands)
+	for i in bounds.size():
+		var a := types[i]
+		var b := types[i + 1]
+		var zone_start := bounds[i] - transition_length * 0.5
+		_segments.append([cursor, zone_start, a])
+		for k in transition_bands:
+			var t := (float(k) + 0.5) / float(transition_bands)
+			_segments.append([zone_start + k * band_len, zone_start + (k + 1) * band_len, Surfaces.blend(a, b, t)])
+		cursor = zone_start + transition_length
+	_segments.append([cursor, length, types[bounds.size()]])
+
+
+## Offset within +/- radius of `center` whose surrounding blend zone bends the least.
+func _straightest_offset_near(center: float, radius: float) -> float:
+	var half := transition_length * 0.5 + 12.0
+	var best := center
+	var best_score := INF
+	var o := center - radius
+	while o <= center + radius:
+		var score := absf(o - center) * 0.0005   # slight preference for staying put
+		var p := o - half
+		var prev_t: Vector3 = frame_at(p).tangent
+		p += 6.0
+		while p <= o + half:
+			var t: Vector3 = frame_at(p).tangent
+			score += prev_t.angle_to(t)
+			prev_t = t
+			p += 6.0
+		if score < best_score:
+			best_score = score
+			best = o
+		o += 3.0
+	return best
 
 
 # ---------------------------------------------------------------- queries
@@ -227,19 +284,19 @@ func _build_road() -> void:
 		var surface: SurfaceType = seg[2]
 		_make_body(st.commit(), surface.color, surface.id, "Road_%d_%s" % [seg_index, surface.id])
 		seg_index += 1
-		# Painted stripe at the start of each new surface so the change is readable.
-		_build_boundary_stripe(seg[0], surface)
+	# Thin stripes mark where each blend zone begins and ends so the change is readable.
+	for b in _boundaries:
+		_build_boundary_stripe(b - transition_length * 0.5)
+		_build_boundary_stripe(b + transition_length * 0.5)
 
 
-func _build_boundary_stripe(offset: float, surface: SurfaceType) -> void:
-	if offset <= 0.0:
-		return
+func _build_boundary_stripe(offset: float) -> void:
 	var f := frame_at(offset)
 	var mi := MeshInstance3D.new()
 	var box := BoxMesh.new()
-	box.size = Vector3(road_half_width * 2.0, 0.04, 1.2)
+	box.size = Vector3(road_half_width * 2.0, 0.04, 0.6)
 	mi.mesh = box
-	mi.material_override = ToonMaterial.make(surface.color.lightened(0.35), 2.0, 0.7, 0.0)
+	mi.material_override = ToonMaterial.make(Color(0.95, 0.95, 0.92), 2.0, 0.7, 0.0)
 	mi.transform = Transform3D(Basis.looking_at(f.tangent, Vector3.UP), f.pos + f.up * 0.03)
 	add_child(mi)
 
