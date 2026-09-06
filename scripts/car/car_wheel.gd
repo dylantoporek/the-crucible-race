@@ -21,6 +21,12 @@ var contact_point := Vector3.ZERO
 var contact_normal := Vector3.UP
 var load := 0.0
 var surface: SurfaceType
+# Surface parameters low-pass filtered by the car so a change of terrain fades in over
+# a fraction of a second instead of snapping between physics ticks.
+var grip_eff := 1.0
+var lateral_grip_eff := 1.0
+var rolling_resistance_eff := 0.012
+var sink_eff := 0.0
 var steer_angle := 0.0
 var slip_lateral := 0.0        # m/s sideways at the contact patch
 var slip_ratio := 0.0          # 0..1+ how hard the tyre is being asked vs what it can give
@@ -35,6 +41,21 @@ var _spin := 0.0
 
 func ray_length() -> float:
 	return suspension_rest + radius
+
+
+## Move the effective surface parameters toward `target` with time constant `tau` seconds.
+func blend_surface(target: SurfaceType, delta: float, tau: float) -> void:
+	if surface == null or tau <= 0.0:
+		grip_eff = target.grip
+		lateral_grip_eff = target.lateral_grip
+		rolling_resistance_eff = target.rolling_resistance
+		sink_eff = target.sink
+		return
+	var k := 1.0 - exp(-delta / tau)
+	grip_eff = lerpf(grip_eff, target.grip, k)
+	lateral_grip_eff = lerpf(lateral_grip_eff, target.lateral_grip, k)
+	rolling_resistance_eff = lerpf(rolling_resistance_eff, target.rolling_resistance, k)
+	sink_eff = lerpf(sink_eff, target.sink, k)
 
 
 func update_visual(delta: float) -> void:

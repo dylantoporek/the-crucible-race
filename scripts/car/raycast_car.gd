@@ -24,17 +24,21 @@ const GROUND_MASK := 0b101  # world + props
 
 @export_group("Steering")
 @export var max_steer_deg := 32.0
-@export var steer_speed := 5.0              ## How fast the wheels turn toward the input (1/s)
-@export var steer_return_speed := 8.0
-@export var high_speed_steer_scale := 0.35  ## Steering authority left at top speed
+@export var steer_speed := 6.5              ## How fast the wheels turn toward the input (1/s)
+@export var steer_return_speed := 10.0
+@export var high_speed_steer_scale := 0.4   ## Steering authority left at top speed
 
 @export_group("Tyres")
-@export var tyre_grip := 1.05               ## Base friction coefficient on asphalt
-@export var peak_slip_angle_deg := 9.0      ## Slip angle at peak lateral grip
+@export var tyre_grip := 1.25               ## Base friction coefficient on asphalt
+@export var peak_slip_angle_deg := 6.5      ## Slip angle at peak lateral grip
+@export var longitudinal_grip := 1.2        ## Drive/brake friction relative to lateral friction
+@export var min_drive_fraction := 0.25      ## Drive/brake capacity kept while sliding sideways
+@export var surface_blend_time := 0.15      ## Seconds for a terrain change to fade in per wheel
 @export var sink_drag := 55.0               ## N per (m/s) per wheel on a surface with sink = 1
 
 @export_group("Chassis")
 @export var anti_roll := 9000.0             ## N per metre of compression difference per axle
+@export var yaw_damping := 3000.0           ## N*m per rad/s of yaw rate while grounded; settles the tail
 @export var drag_coefficient := 2.0         ## N per (m/s)^2
 @export var downforce := 1.2                ## N per (m/s)^2
 @export var air_stabilize_torque := 2500.0  ## Self-righting torque when airborne
@@ -112,6 +116,7 @@ func _physics_process(delta: float) -> void:
 
 	_apply_anti_roll(up)
 	_apply_aero(up, speed_abs)
+	_apply_yaw_damping(up)
 	_pick_dominant_surface(surface_votes)
 
 	if grounded_wheels == 0:
@@ -182,6 +187,7 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 	w.load = load
 	w.contact_point = hit_pos
 	w.contact_normal = normal
+	w.blend_surface(surface, delta, surface_blend_time)
 	w.surface = surface
 	apply_force(up * load, origin - global_position)
 
@@ -195,12 +201,12 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 	var vel := linear_velocity + angular_velocity.cross(hub - com)
 	var v_fwd := vel.dot(fwd)
 	var v_lat := vel.dot(right)
-	var max_friction := tyre_grip * surface.grip * load
+	var max_friction := tyre_grip * w.grip_eff * load
 	var wheel_mass := mass / float(wheels.size())
 
 	# --- Lateral: slip-angle curve, never overshooting what stops the slide this tick ---
 	var slip_angle := atan2(v_lat, absf(v_fwd) + 0.6)
-	var lat_grip := surface.lateral_grip
+	var lat_grip := w.lateral_grip_eff
 	if input_handbrake and not w.is_steer:
 		lat_grip *= handbrake_lateral_grip
 	var f_lat := -tyre_curve(slip_angle / _peak_slip_angle) * max_friction * lat_grip
@@ -214,21 +220,28 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 	var brake := (0.0 if reversing else input_brake) * max_brake_force / float(wheels.size())
 	if input_handbrake and not w.is_steer:
 		brake += handbrake_force * 0.5
-	brake += surface.rolling_resistance * load
+	brake += w.rolling_resistance_eff * load
 	var brake_stop := absf(v_fwd) * wheel_mass / delta
 	f_long += -signf(v_fwd) * minf(brake, brake_stop)
-	f_long += -v_fwd * surface.sink * sink_drag
+	f_long += -v_fwd * w.sink_eff * sink_drag
 
-	# --- Friction circle ---
+	# --- Friction ellipse, lateral first ---
+	# Sideways grip is served before drive/brake so throttle does not push the car wide.
+	# Whatever the tyre has left goes to longitudinal force, with a floor so a sliding
+	# wheel can still spin up or lock.
 	var f := Vector2(f_long, f_lat)
-	var demand := f.length()
-	w.slip_ratio = demand / maxf(max_friction, 1.0)
+	w.slip_ratio = f.length() / maxf(max_friction, 1.0)
 	w.slipping = false
 	if max_friction <= 0.0:
 		f = Vector2.ZERO
-	elif demand > max_friction:
-		f = f / demand * max_friction
-		w.slipping = true
+	else:
+		f.y = clampf(f.y, -max_friction, max_friction)
+		var lat_frac := absf(f.y) / max_friction
+		var remaining := sqrt(maxf(1.0 - lat_frac * lat_frac, 0.0))
+		var long_limit := max_friction * longitudinal_grip * maxf(remaining, min_drive_fraction)
+		if absf(f.x) > long_limit:
+			f.x = signf(f.x) * long_limit
+			w.slipping = true
 	if absf(slip_angle) > _peak_slip_angle * 1.3 and speed_abs > 3.0:
 		w.slipping = true
 	w.slip_lateral = v_lat
@@ -246,14 +259,14 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 
 
 ## Normalised slip -> normalised force. Rises smoothly to 1.0 at s = 1 (peak grip),
-## then eases toward 0.75 for sliding. Odd function so sign is preserved.
+## then eases toward 0.82 for sliding. Odd function so sign is preserved.
 static func tyre_curve(s: float) -> float:
 	var a := absf(s)
 	var y: float
 	if a < 1.0:
 		y = a * (2.0 - a)
 	else:
-		y = lerpf(1.0, 0.75, clampf((a - 1.0) * 0.5, 0.0, 1.0))
+		y = lerpf(1.0, 0.82, clampf((a - 1.0) * 0.5, 0.0, 1.0))
 	return y * signf(s)
 
 
@@ -277,6 +290,14 @@ func _apply_anti_roll(up: Vector3) -> void:
 			apply_force(up * force, l.global_position - global_position)
 		if r.grounded:
 			apply_force(-up * force, r.global_position - global_position)
+
+
+func _apply_yaw_damping(up: Vector3) -> void:
+	if grounded_wheels == 0:
+		return
+	var grip := current_surface.grip if current_surface != null else 1.0
+	var yaw_rate := angular_velocity.dot(up)
+	apply_torque(-up * yaw_rate * yaw_damping * grip * (float(grounded_wheels) / float(wheels.size())))
 
 
 func _apply_aero(up: Vector3, speed_abs: float) -> void:

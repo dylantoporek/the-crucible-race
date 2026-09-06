@@ -18,9 +18,10 @@ project runs natively and in the browser.
 godot --headless --path . res://tests/smoke_test.tscn
 ```
 
-**Web build:** every push to `main` (or a `claude/**` branch) runs
-`.github/workflows/deploy-web.yml`, which exports the Web preset and publishes it to
-GitHub Pages. The first run enables Pages automatically where permissions allow. If the
+**Web build:** every push to `main` or a `claude/**` branch runs
+`.github/workflows/deploy-web.yml`, which runs the smoke test and exports the Web preset.
+Pushes to `main` also publish it to GitHub Pages; other branches only produce the
+downloadable artifact. The first run enables Pages automatically where permissions allow. If the
 deploy job fails on that step, turn Pages on once under
 *Settings → Pages → Source: GitHub Actions* and re-run the workflow. The link is then
 `https://<owner>.github.io/the-crucible-race/`.
@@ -65,8 +66,10 @@ godot --headless --path . --export-release "Web" build/web/index.html
   registered in `surface_library.gd`. Add a terrain by adding one line there.
 - **Procedural test circuit** (`scripts/track/test_track.gd`): a 2.3 km closed loop
   extruded from a spline, split into surface segments in the order asphalt, dirt,
-  asphalt, sand, asphalt, ice, snow, asphalt, dirt. Grass shoulders, barrier walls,
-  start gate, and crates to knock about.
+  asphalt, sand, asphalt, ice, snow, asphalt, dirt. Each change of surface happens
+  through a 36 m blend zone of six intermediate grip bands, placed on the straightest
+  nearby road, and marked with white lines at both ends. Grass shoulders, barrier
+  walls, start gate, and crates to knock about.
 - **AI opponents** (`scripts/car/ai_driver.gd`): spline followers that slow for
   corners and low grip, hold a lane, and lean on the player when alongside.
 - **Chase camera** that follows the velocity vector so slides read on screen, with
@@ -84,6 +87,9 @@ first:
 |---|---|
 | Quicker / slower | `max_engine_force`, `top_speed`, `drag_coefficient` |
 | More / less grip | `tyre_grip`, or per surface `grip` in `surface_library.gd` |
+| Throttle pushes wide vs. holds line | `longitudinal_grip`, `min_drive_fraction` |
+| Tail wags / settles | `yaw_damping` |
+| Softer / harsher surface changes | `surface_blend_time` on the car, `transition_length` on the track |
 | Sharper turn-in | `max_steer_deg`, `steer_speed`, `peak_slip_angle_deg` |
 | Slidier handbrake | `handbrake_lateral_grip` |
 | Softer / stiffer ride | `spring_stiffness`, `damping_*` on each wheel |
