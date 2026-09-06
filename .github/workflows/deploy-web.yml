@@ -74,8 +74,12 @@ jobs:
         with:
           path: build/web
 
+  # Only main publishes to the live Pages URL. The github-pages environment that GitHub
+  # creates when Pages is enabled rejects deployments from other branches, and feature
+  # branches still get the downloadable web-build artifact from the build job above.
   deploy:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

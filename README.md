@@ -18,9 +18,10 @@ project runs natively and in the browser.
 godot --headless --path . res://tests/smoke_test.tscn
 ```
 
-**Web build:** every push to `main` (or a `claude/**` branch) runs
-`.github/workflows/deploy-web.yml`, which exports the Web preset and publishes it to
-GitHub Pages. The first run enables Pages automatically where permissions allow. If the
+**Web build:** every push to `main` or a `claude/**` branch runs
+`.github/workflows/deploy-web.yml`, which runs the smoke test and exports the Web preset.
+Pushes to `main` also publish it to GitHub Pages; other branches only produce the
+downloadable artifact. The first run enables Pages automatically where permissions allow. If the
 deploy job fails on that step, turn Pages on once under
 *Settings → Pages → Source: GitHub Actions* and re-run the workflow. The link is then
 `https://<owner>.github.io/the-crucible-race/`.
