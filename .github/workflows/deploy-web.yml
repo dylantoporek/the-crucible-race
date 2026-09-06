@@ -62,6 +62,13 @@ jobs:
           touch build/web/.nojekyll
           ls -la build/web
 
+      - name: Upload web build (downloadable from the run page)
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: build/web
+          retention-days: 14
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

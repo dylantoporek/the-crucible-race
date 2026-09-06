@@ -25,6 +25,17 @@ deploy job fails on that step, turn Pages on once under
 *Settings → Pages → Source: GitHub Actions* and re-run the workflow. The link is then
 `https://<owner>.github.io/the-crucible-race/`.
 
+GitHub Pages needs the repository to be public, or a paid GitHub plan for a private
+repository. Until then, every workflow run still uploads the finished build as the
+`web-build` artifact on the run's summary page. Download it, unzip it, and serve the
+folder with any static server, for example:
+
+```
+python3 -m http.server 8000
+```
+
+then open `http://localhost:8000/`.
+
 To export locally you need the 4.7.1 export templates installed, then:
 
 ```
