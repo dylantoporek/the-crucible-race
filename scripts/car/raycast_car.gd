@@ -24,21 +24,26 @@ const GROUND_MASK := 0b101  # world + props
 
 @export_group("Steering")
 @export var max_steer_deg := 32.0
-@export var steer_speed := 6.5              ## How fast the wheels turn toward the input (1/s)
-@export var steer_return_speed := 10.0
-@export var high_speed_steer_scale := 0.4   ## Steering authority left at top speed
+@export var steer_speed := 6.0              ## How fast the wheels turn toward the input (1/s)
+@export var steer_return_speed := 9.0
+@export var high_speed_steer_scale := 0.38  ## Steering authority left at top speed
 
 @export_group("Tyres")
-@export var tyre_grip := 1.25               ## Base friction coefficient on asphalt
-@export var peak_slip_angle_deg := 6.5      ## Slip angle at peak lateral grip
-@export var longitudinal_grip := 1.2        ## Drive/brake friction relative to lateral friction
+@export var tyre_grip := 1.15               ## Base friction coefficient on asphalt
+@export var peak_slip_angle_deg := 7.5      ## Slip angle at peak lateral grip
+@export_range(0.0, 1.0) var slide_falloff := 0.78  ## Grip left once the tyre is sliding, as a fraction of peak
+@export var longitudinal_grip := 1.1        ## Drive/brake friction relative to lateral friction
+## How much sideways grip is protected when drive/brake and cornering compete for the tyre.
+## 0 = everything scales down together (throttle steals cornering grip, power oversteer),
+## 1 = cornering always wins (throttle can never push the car wide or spin it).
+@export_range(0.0, 1.0) var lateral_priority := 0.3
 @export var min_drive_fraction := 0.25      ## Drive/brake capacity kept while sliding sideways
 @export var surface_blend_time := 0.15      ## Seconds for a terrain change to fade in per wheel
 @export var sink_drag := 55.0               ## N per (m/s) per wheel on a surface with sink = 1
 
 @export_group("Chassis")
 @export var anti_roll := 9000.0             ## N per metre of compression difference per axle
-@export var yaw_damping := 3000.0           ## N*m per rad/s of yaw rate while grounded; settles the tail
+@export var yaw_damping := 1200.0           ## N*m per rad/s of yaw rate while grounded; settles the tail
 @export var drag_coefficient := 2.0         ## N per (m/s)^2
 @export var downforce := 1.2                ## N per (m/s)^2
 @export var air_stabilize_torque := 2500.0  ## Self-righting torque when airborne
@@ -209,7 +214,7 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 	var lat_grip := w.lateral_grip_eff
 	if input_handbrake and not w.is_steer:
 		lat_grip *= handbrake_lateral_grip
-	var f_lat := -tyre_curve(slip_angle / _peak_slip_angle) * max_friction * lat_grip
+	var f_lat := -tyre_curve(slip_angle / _peak_slip_angle, slide_falloff) * max_friction * lat_grip
 	var lat_stop := absf(v_lat) * wheel_mass / delta
 	f_lat = clampf(f_lat, -lat_stop, lat_stop)
 
@@ -225,23 +230,33 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 	f_long += -signf(v_fwd) * minf(brake, brake_stop)
 	f_long += -v_fwd * w.sink_eff * sink_drag
 
-	# --- Friction ellipse, lateral first ---
-	# Sideways grip is served before drive/brake so throttle does not push the car wide.
-	# Whatever the tyre has left goes to longitudinal force, with a floor so a sliding
-	# wheel can still spin up or lock.
+	# --- Friction ellipse ---
+	# Two ways to resolve drive/brake competing with cornering for the same tyre, blended by
+	# lateral_priority. Proportional: both shrink together, so throttle steals cornering grip
+	# and the tail can step out. Lateral-first: cornering is served first and drive gets what
+	# is left (with a floor so a sliding wheel can still spin up or lock).
 	var f := Vector2(f_long, f_lat)
-	w.slip_ratio = f.length() / maxf(max_friction, 1.0)
+	w.slip_ratio = Vector2(f.x / longitudinal_grip, f.y).length() / maxf(max_friction, 1.0)
 	w.slipping = false
 	if max_friction <= 0.0:
 		f = Vector2.ZERO
 	else:
-		f.y = clampf(f.y, -max_friction, max_friction)
-		var lat_frac := absf(f.y) / max_friction
+		var proportional := f
+		var ellipse_demand := Vector2(f.x / longitudinal_grip, f.y).length()
+		if ellipse_demand > max_friction:
+			proportional = f * (max_friction / ellipse_demand)
+			w.slipping = true
+		var lateral_first := f
+		lateral_first.y = clampf(f.y, -max_friction, max_friction)
+		var lat_frac := absf(lateral_first.y) / max_friction
 		var remaining := sqrt(maxf(1.0 - lat_frac * lat_frac, 0.0))
 		var long_limit := max_friction * longitudinal_grip * maxf(remaining, min_drive_fraction)
-		if absf(f.x) > long_limit:
-			f.x = signf(f.x) * long_limit
+		if absf(lateral_first.x) > long_limit:
+			lateral_first.x = signf(f.x) * long_limit
 			w.slipping = true
+		# A wheel being locked by the handbrake gets no protection: it is meant to slide.
+		var priority := 0.0 if (input_handbrake and not w.is_steer) else lateral_priority
+		f = proportional.lerp(lateral_first, priority)
 	if absf(slip_angle) > _peak_slip_angle * 1.3 and speed_abs > 3.0:
 		w.slipping = true
 	w.slip_lateral = v_lat
@@ -259,14 +274,14 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 
 
 ## Normalised slip -> normalised force. Rises smoothly to 1.0 at s = 1 (peak grip),
-## then eases toward 0.82 for sliding. Odd function so sign is preserved.
-static func tyre_curve(s: float) -> float:
+## then eases toward `falloff` for sliding. Odd function so sign is preserved.
+static func tyre_curve(s: float, falloff: float = 0.78) -> float:
 	var a := absf(s)
 	var y: float
 	if a < 1.0:
 		y = a * (2.0 - a)
 	else:
-		y = lerpf(1.0, 0.82, clampf((a - 1.0) * 0.5, 0.0, 1.0))
+		y = lerpf(1.0, falloff, clampf((a - 1.0) * 0.5, 0.0, 1.0))
 	return y * signf(s)
 
 
