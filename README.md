@@ -87,8 +87,10 @@ first:
 |---|---|
 | Quicker / slower | `max_engine_force`, `top_speed`, `drag_coefficient` |
 | More / less grip | `tyre_grip`, or per surface `grip` in `surface_library.gd` |
+| Easier / harder to spin under power | `lateral_priority` (0 = throttle steals cornering grip, 1 = never) |
 | Throttle pushes wide vs. holds line | `longitudinal_grip`, `min_drive_fraction` |
 | Tail wags / settles | `yaw_damping` |
+| How much grip is left mid-slide | `slide_falloff` |
 | Softer / harsher surface changes | `surface_blend_time` on the car, `transition_length` on the track |
 | Sharper turn-in | `max_steer_deg`, `steer_speed`, `peak_slip_angle_deg` |
 | Slidier handbrake | `handbrake_lateral_grip` |
