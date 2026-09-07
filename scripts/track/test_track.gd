@@ -56,8 +56,15 @@ const CONTROL_POINTS: Array[Vector3] = [
 ## How far (metres) a surface boundary may move to land on the straightest nearby road.
 @export var transition_search := 60.0
 
+## Search window and step sizes for the cached per-body offset lookup, in metres.
+const CURSOR_RADIUS := 12.0
+const CURSOR_COARSE_STEP := 2.0
+const CURSOR_FINE_STEP := 0.25
+
 var curve := Curve3D.new()
 var length := 0.0
+var _cursor_offset: Dictionary = {}   # body instance id -> offset along the loop
+var _cursor_frame: Dictionary = {}    # body instance id -> physics frame it was computed on
 var _frames: Array[Dictionary] = []   # pos, tangent, right, up, offset
 var _segments: Array = []             # [start_offset, end_offset, SurfaceType], blend bands included
 var _boundaries: Array[float] = []    # centre offset of each surface change
@@ -175,12 +182,72 @@ func _straightest_offset_near(center: float, radius: float) -> float:
 
 # ---------------------------------------------------------------- queries
 
+## Exact but expensive: scans every baked point on the curve. Use `track_offset()` for
+## anything that runs per frame; this is for one-off queries and cache misses.
 func offset_of(global_pos: Vector3) -> float:
 	return curve.get_closest_offset(to_local(global_pos))
 
 
+## Offset along the loop for a moving body, cached per physics frame and found by searching
+## only near where the body was last tick. A car covers about a metre per tick at top speed,
+## so the window is generous; if the best match lands on the window edge the body has been
+## reset or teleported and we fall back to the full scan.
+func track_offset(body: Node3D) -> float:
+	var id := body.get_instance_id()
+	var frame := Engine.get_physics_frames()
+	if _cursor_frame.get(id, -1) == frame:
+		return _cursor_offset[id]
+	var offset: float
+	if _cursor_offset.has(id):
+		offset = _offset_near(body.global_position, _cursor_offset[id])
+	else:
+		offset = offset_of(body.global_position)
+		_prune_cursors()
+	_cursor_offset[id] = offset
+	_cursor_frame[id] = frame
+	return offset
+
+
+func _offset_near(global_pos: Vector3, hint: float) -> float:
+	var local := to_local(global_pos)
+	var best := hint
+	var best_d := INF
+	var o := hint - CURSOR_RADIUS
+	while o <= hint + CURSOR_RADIUS:
+		var d := local.distance_squared_to(curve.sample_baked(fposmod(o, length), true))
+		if d < best_d:
+			best_d = d
+			best = o
+		o += CURSOR_COARSE_STEP
+	# The body moved further than the window, so the true closest point may lie outside it.
+	if absf(best - hint) >= CURSOR_RADIUS - CURSOR_COARSE_STEP * 0.5:
+		return offset_of(global_pos)
+	var fine := best
+	o = best - CURSOR_COARSE_STEP
+	while o <= best + CURSOR_COARSE_STEP:
+		var d := local.distance_squared_to(curve.sample_baked(fposmod(o, length), true))
+		if d < best_d:
+			best_d = d
+			fine = o
+		o += CURSOR_FINE_STEP
+	return fposmod(fine, length)
+
+
+## Drop cursors belonging to bodies that no longer exist.
+func _prune_cursors() -> void:
+	for id in _cursor_offset.keys():
+		if not is_instance_valid(instance_from_id(id)):
+			_cursor_offset.erase(id)
+			_cursor_frame.erase(id)
+
+
 func progress_of(global_pos: Vector3) -> float:
 	return offset_of(global_pos) / length
+
+
+## Progress 0..1 for a moving body, using the cached offset.
+func body_progress(body: Node3D) -> float:
+	return track_offset(body) / length
 
 
 ## Signed distance along the loop from a to b, in (-length/2, length/2].
@@ -191,9 +258,18 @@ func wrapped_delta(a: float, b: float) -> float:
 	return d
 
 
-func lateral_offset(global_pos: Vector3) -> float:
-	var f := frame_at(offset_of(global_pos))
+## Metres right of the road centre line, for a position whose offset is already known.
+func lateral_offset_at(global_pos: Vector3, offset: float) -> float:
+	var f := frame_at(offset)
 	return (to_local(global_pos) - f.pos).dot(f.right)
+
+
+func lateral_offset(global_pos: Vector3) -> float:
+	return lateral_offset_at(global_pos, offset_of(global_pos))
+
+
+func distance_from_center_at(global_pos: Vector3, offset: float) -> float:
+	return absf(lateral_offset_at(global_pos, offset))
 
 
 func distance_from_center(global_pos: Vector3) -> float:
