@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Telemetry overlay for tuning: speed, surface, grip usage, per-wheel state, laps, hits.
+## Telemetry overlay for tuning: speed, surface, grip usage, per-wheel state, race progress.
 ## Built in code so it stays trivially editable. Toggle with F1 (`toggle_debug`).
 
 var game: Node
@@ -8,7 +8,8 @@ var player: RaycastCar
 var _speed_label: Label
 var _surface_label: Label
 var _grip_bar: ProgressBar
-var _lap_label: Label
+var _race_label: Label
+var _progress_bar: ProgressBar
 var _telemetry: Label
 var _controls: Label
 
@@ -46,12 +47,21 @@ func _build() -> void:
 	speed_box.add_child(_grip_bar)
 	speed_box.add_child(_label("grip usage", font_small, HORIZONTAL_ALIGNMENT_RIGHT))
 
-	# Top-left: lap / position / timing.
-	_lap_label = _label("", font_mid, HORIZONTAL_ALIGNMENT_LEFT)
-	_lap_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-	_lap_label.offset_left = 24
-	_lap_label.offset_top = 20
-	add_child(_lap_label)
+	# Top-left: position, stage, elapsed time and how far is left.
+	var race_box := VBoxContainer.new()
+	race_box.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	race_box.offset_left = 24
+	race_box.offset_top = 20
+	race_box.offset_right = 400
+	add_child(race_box)
+	_race_label = _label("", font_mid, HORIZONTAL_ALIGNMENT_LEFT)
+	race_box.add_child(_race_label)
+	_progress_bar = ProgressBar.new()
+	_progress_bar.min_value = 0.0
+	_progress_bar.max_value = 1.0
+	_progress_bar.show_percentage = false
+	_progress_bar.custom_minimum_size = Vector2(340, 8)
+	race_box.add_child(_progress_bar)
 
 	# Left: per-wheel telemetry.
 	_telemetry = _label("", font_small, HORIZONTAL_ALIGNMENT_LEFT)
@@ -99,10 +109,17 @@ func _process(_delta: float) -> void:
 	fill.bg_color = Color(0.3, 0.9, 0.4).lerp(Color(0.95, 0.25, 0.2), clampf(_grip_bar.value, 0.0, 1.0))
 	_grip_bar.add_theme_stylebox_override("fill", fill)
 
-	var best_txt := _fmt_time(game.best_lap) if game.best_lap < INF else "--:--.---"
-	_lap_label.text = "P%d / %d     LAP %d     %s\nBEST %s     LAST %s     HITS %d" % [
-		game.position_of(player), game.cars.size(), game.lap + 1, _fmt_time(game.lap_time),
-		best_txt, _fmt_time(game.last_lap) if game.last_lap > 0.0 else "--:--.---", player.hits]
+	var stage: Dictionary = game.track.stage_at(game.track.track_offset(player))
+	var remaining: float = game.distance_remaining(player)
+	if game.player_finished:
+		_race_label.text = "FINISHED  P%d / %d     %s     HITS %d\n%s" % [
+			game.player_finish_place, game.cars.size(), _fmt_time(game.player_finish_time),
+			player.hits, stage.get("name", "")]
+	else:
+		_race_label.text = "P%d / %d     %s     HITS %d\n%s     %.0f m to go" % [
+			game.position_of(player), game.cars.size(), _fmt_time(game.race_time),
+			player.hits, stage.get("name", ""), remaining]
+	_progress_bar.value = game.progress_of(player)
 
 	var lines := PackedStringArray()
 	lines.append("FPS %d   grounded %d/4   steer %+.2f" % [Engine.get_frames_per_second(), player.grounded_wheels, player.steer])

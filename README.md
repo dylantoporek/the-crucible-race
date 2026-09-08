@@ -64,12 +64,13 @@ godot --headless --path . --export-release "Web" build/web/index.html
   meta tag. Each `SurfaceType` defines grip, lateral grip, rolling resistance,
   soft-surface sink, bumpiness and dust. Asphalt, dirt, sand, ice, snow and grass are
   registered in `surface_library.gd`. Add a terrain by adding one line there.
-- **Procedural test circuit** (`scripts/track/test_track.gd`): a 2.3 km closed loop
-  extruded from a spline, split into surface segments in the order asphalt, dirt,
-  asphalt, sand, asphalt, ice, snow, asphalt, dirt. Each change of surface happens
-  through a 36 m blend zone of six intermediate grip bands, placed on the straightest
-  nearby road, and marked with white lines at both ends. Grass shoulders, barrier
-  walls, start gate, and crates to knock about.
+- **Generated sprint course** (`scripts/track/sprint_track.gd`, `route_spec.gd`): an
+  8.5 km point-to-point run through six stages — badlands dirt, a village, a wide ruined
+  desert, a climbing city, a mountain pass and the descent into the arena. The route is
+  generated from a stage table rather than hand-placed control points, so changing the map
+  means editing data. Road width, surface mix, corner tightness, gradient and hazards are
+  all per stage. Each change of surface happens through a 34 m blend zone of six
+  intermediate grip bands, marked with white lines at both ends.
 - **AI opponents** (`scripts/car/ai_driver.gd`): spline followers that slow for
   corners and low grip, hold a lane, and lean on the player when alongside.
   The demo grid is 16 cars (`ai_count` on the main scene).
@@ -85,14 +86,13 @@ Physics is the limit, not rendering: each car is only 7 draw calls, but its whee
 raycasts, tyre forces and AI cost CPU every tick. Measured headless on a 2.1 GHz Xeon,
 where the budget for 60 Hz is 16.67 ms per tick:
 
-| Cars | Physics per tick | Share of budget |
-|---|---|---|
-| 6 | 1.7 ms | 10% |
-| 16 | 2.7 ms | 16% |
-| 20 | 3.4 ms | 21% |
-| 40 | 5.7 ms | 34% |
+| Course | Cars | Physics per tick | Share of budget |
+|---|---|---|---|
+| old 2.3 km circuit | 16 | 2.7 ms | 16% |
+| sprint course | 16 | 5.4 ms | 32% |
 
-Each car costs about 0.12 ms. The web build is single threaded and WebAssembly runs
+Each car costs about 0.12 ms; the rest is the course itself, which carries around 570
+static bodies against the circuit's ~115. The web build is single threaded and WebAssembly runs
 slower than native, so treat these as roughly what a mid-range laptop sees in a browser.
 Around 20 cars is the practical browser ceiling today; a physics level of detail pass
 (full simulation only near the player) is what would take it past 40.
@@ -101,6 +101,26 @@ Track offsets are the reason this is affordable. `TestTrack.track_offset()` cach
 offset per body per physics frame and finds it by searching a 12 m window around where
 the body was last tick, instead of scanning all 2,292 baked points of the curve. It falls
 back to the full scan on a cache miss or when a body is reset or teleported.
+
+## Changing the map
+
+Everything about the course lives in `scripts/track/route_spec.gd`. Each stage declares how
+long it lasts, how wide the road is, which surfaces it mixes and what hazards it carries.
+Two fields do most of the work:
+
+- **`min_radius`** — the tightest corner on the stage, in metres. The S-bend amplitude is
+  derived from it, so you cannot accidentally author a hairpin no car could take. A corner
+  taken flat out needs roughly `speed² / (1.15 · grip · 9.81)` metres.
+- **`max_grade`** — the steepest gradient allowed. The climb takes its share first and
+  rolling hills get whatever is left, so a stage can never out-climb its own grip. The
+  ceiling is about `1.15 × grip`: asphalt ~115%, dirt ~76%, sand ~63%, snow ~47%, ice ~23%.
+
+Hazards are declared per stage under `features`: `moguls` (folded into the road mesh, good
+for air), `pillars` (columns in the road with a gap that sways across it), `ice_patches`
+(scattered over snow, and kept off gradients ice cannot pull away from), `rocks`,
+`buildings`, `arena` stands, a `pit_apron`, and loose `debris`. Where hazards leave only a
+gap, the track publishes it via `hazard_gate()` and the AI threads it rather than driving
+into a column.
 
 ## Tuning
 
@@ -127,7 +147,7 @@ first:
 ```
 scenes/        main.tscn (session), car.tscn (vehicle)
 scripts/car/   raycast_car, car_wheel, player_driver, ai_driver
-scripts/track/ test_track (procedural circuit)
+scripts/track/ sprint_track (generator + builder), route_spec (the map, as data)
 scripts/surfaces/  surface_type, surface_library (autoload `Surfaces`)
 scripts/camera/    chase_camera
 scripts/ui/        debug_hud
@@ -140,7 +160,9 @@ tests/             smoke_test (headless physics check)
 ## Roadmap
 
 1. Damage: mesh deformation from contact impulses, detachable panels, performance loss.
-2. Point-to-point course builder with biome chunks streamed along the spline.
+2. Pit stop mechanics — the apron and bays exist as geometry, but stopping does nothing yet.
+3. Terrain under the course. Today there is one flat plate beneath everything, so an
+   elevated stage reads as a ridge standing on a plain rather than a real mountain.
 3. Proper car model, outline pass, skid marks, engine and surface audio.
 4. Smarter AI: overtaking, blocking, rubber-banding, grudges.
 5. Native desktop exports alongside the web build.
