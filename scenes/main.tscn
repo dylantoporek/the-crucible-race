@@ -1,7 +1,7 @@
 [gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/game/game.gd" id="1_game"]
-[ext_resource type="Script" path="res://scripts/track/test_track.gd" id="2_track"]
+[ext_resource type="Script" path="res://scripts/track/sprint_track.gd" id="2_track"]
 [ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="3_cam"]
 [ext_resource type="Script" path="res://scripts/ui/debug_hud.gd" id="4_hud"]
 
@@ -39,7 +39,7 @@ light_energy = 1.3
 shadow_enabled = true
 directional_shadow_max_distance = 160.0
 
-[node name="TestTrack" type="Node3D" parent="."]
+[node name="SprintTrack" type="Node3D" parent="."]
 script = ExtResource("2_track")
 
 [node name="Cars" type="Node3D" parent="."]
