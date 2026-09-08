@@ -72,11 +72,35 @@ godot --headless --path . --export-release "Web" build/web/index.html
   walls, start gate, and crates to knock about.
 - **AI opponents** (`scripts/car/ai_driver.gd`): spline followers that slow for
   corners and low grip, hold a lane, and lean on the player when alongside.
+  The demo grid is 16 cars (`ai_count` on the main scene).
 - **Chase camera** that follows the velocity vector so slides read on screen, with
   hit shake.
 - **Debug HUD** with speed, current surface, grip usage, per-wheel telemetry, laps,
   position and hit count.
 - **Cel shader** (`shaders/toon.gdshader`) that works on the Compatibility renderer.
+
+## Performance
+
+Physics is the limit, not rendering: each car is only 7 draw calls, but its wheel
+raycasts, tyre forces and AI cost CPU every tick. Measured headless on a 2.1 GHz Xeon,
+where the budget for 60 Hz is 16.67 ms per tick:
+
+| Cars | Physics per tick | Share of budget |
+|---|---|---|
+| 6 | 1.7 ms | 10% |
+| 16 | 2.7 ms | 16% |
+| 20 | 3.4 ms | 21% |
+| 40 | 5.7 ms | 34% |
+
+Each car costs about 0.12 ms. The web build is single threaded and WebAssembly runs
+slower than native, so treat these as roughly what a mid-range laptop sees in a browser.
+Around 20 cars is the practical browser ceiling today; a physics level of detail pass
+(full simulation only near the player) is what would take it past 40.
+
+Track offsets are the reason this is affordable. `TestTrack.track_offset()` caches one
+offset per body per physics frame and finds it by searching a 12 m window around where
+the body was last tick, instead of scanning all 2,292 baked points of the curve. It falls
+back to the full scan on a cache miss or when a body is reset or teleported.
 
 ## Tuning
 

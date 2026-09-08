@@ -14,7 +14,7 @@ const AI_COLORS: Array[Color] = [
 	Color(0.55, 0.55, 0.60),
 ]
 
-@export var ai_count := 5
+@export var ai_count := 15
 
 @onready var track: TestTrack = $TestTrack
 @onready var camera: ChaseCamera = $ChaseCamera
@@ -67,7 +67,7 @@ func _spawn_car(index: int, is_player: bool) -> RaycastCar:
 		car.add_child(ai)
 	cars.append(car)
 	_laps[car] = 0
-	_prev_progress[car] = track.progress_of(car.global_position)
+	_prev_progress[car] = track.body_progress(car)
 	_half_passed[car] = false
 	return car
 
@@ -82,7 +82,7 @@ func _process(delta: float) -> void:
 
 
 func _update_progress(car: RaycastCar) -> void:
-	var p := track.progress_of(car.global_position)
+	var p := track.body_progress(car)
 	var prev: float = _prev_progress[car]
 	if p > 0.45 and p < 0.55:
 		_half_passed[car] = true

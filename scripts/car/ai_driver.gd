@@ -29,7 +29,7 @@ func _physics_process(delta: float) -> void:
 	var curve := track.curve
 	var length := track.length
 	var pos := car.global_position
-	var offset := track.offset_of(pos)
+	var offset := track.track_offset(car)
 	var speed := car.speed
 	var speed_abs := absf(speed)
 
@@ -45,10 +45,10 @@ func _physics_process(delta: float) -> void:
 	_lane_wobble_phase += delta * 0.4
 	var lane := lane_offset + sin(_lane_wobble_phase) * 1.2
 	if rival != null and is_instance_valid(rival):
-		var rival_off := track.offset_of(rival.global_position)
+		var rival_off := track.track_offset(rival)
 		var along := track.wrapped_delta(offset, rival_off)
 		if absf(along) < 9.0:
-			var rival_lane := track.lateral_offset(rival.global_position)
+			var rival_lane := track.lateral_offset_at(rival.global_position, rival_off)
 			lane = lerpf(lane, rival_lane, aggression * 0.9)
 	lane = clampf(lane, -track.road_half_width + 1.2, track.road_half_width - 1.2)
 	var target: Vector3 = track.to_global(ahead.pos + ahead.right * lane)
@@ -93,7 +93,7 @@ func _physics_process(delta: float) -> void:
 		_stuck_time = 0.0
 
 	# Way off the road, or lost for too long: put it back on the track.
-	if track.distance_from_center(pos) > track.road_half_width + track.shoulder_width + 4.0:
+	if track.distance_from_center_at(pos, offset) > track.road_half_width + track.shoulder_width + 4.0:
 		_offtrack_time += delta
 	else:
 		_offtrack_time = 0.0
