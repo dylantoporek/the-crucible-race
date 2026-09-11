@@ -57,10 +57,16 @@ const STAGES: Array[Dictionary] = [
 		"turn": -52.0, "min_radius": 150.0, "bend_len": 380.0,
 		"climb": -16.0, "max_grade": 0.09, "hills_wave": 300.0,
 		"features": {
-			# Ruined columns standing in the road. A wandering gap keeps a line through.
-			"pillars": {"from": 0.10, "to": 0.94, "spacing": 52.0, "per_cluster": 4,
-						"gate_width": 9.0, "radius": 1.5, "height": 9.0},
-			"debris": {"count": 22},
+			# Ruined halls: the road runs under a broken roof with a colonnade down the
+			# middle, splitting it into two lanes. Pick a side early; you cannot change it.
+			"ruin_halls": {"count": 3, "min_len": 140.0, "max_len": 200.0, "roof_height": 9.5,
+						   "column_spacing": 12.0, "roof_gap_chance": 0.3},
+			# A few free-standing columns between the halls. A wandering gap keeps a line.
+			"pillars": {"from": 0.08, "to": 0.94, "spacing": 80.0, "per_cluster": 2,
+						"gate_width": 10.0, "radius": 1.6, "height": 9.0},
+			# Toppled columns lying across the sand near the edges.
+			"fallen_columns": {"count": 10},
+			"debris": {"count": 14},
 		},
 	},
 	{

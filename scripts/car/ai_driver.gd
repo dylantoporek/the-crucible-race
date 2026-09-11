@@ -28,6 +28,15 @@ func _ready() -> void:
 	car = get_parent() as RaycastCar
 
 
+## Forget stuck/stall history, e.g. after the car has been moved.
+func reset_state() -> void:
+	_offtrack_time = 0.0
+	_stuck_time = 0.0
+	_reverse_timer = 0.0
+	_stall_time = 0.0
+	_best_offset = -INF
+
+
 func _physics_process(delta: float) -> void:
 	if track == null or car == null:
 		return
@@ -54,8 +63,10 @@ func _physics_process(delta: float) -> void:
 		if absf(rival_off - offset) < 9.0:
 			var rival_lane := track.lateral_offset_at(rival.global_position, rival_off)
 			lane = lerpf(lane, rival_lane, aggression * 0.9)
-	# Where hazards leave only a gap, thread it rather than holding a personal lane.
-	var gate: Vector2 = track.hazard_gate(ahead.offset)
+	# Where hazards leave only a gap, thread it rather than holding a personal lane. Inside a
+	# ruined hall the gap is one of two lanes; asking with our own side keeps us in it.
+	var my_lateral := track.lateral_offset_at(pos, offset)
+	var gate: Vector2 = track.hazard_gate(ahead.offset, my_lateral)
 	if gate.y > 0.0:
 		lane = gate.x + lane_offset * gate.y * 0.5
 		lane = clampf(lane, gate.x - gate.y + 1.6, gate.x + gate.y - 1.6)
@@ -125,11 +136,8 @@ func _physics_process(delta: float) -> void:
 	if _offtrack_time > 3.0 or _stuck_time > 7.0 or _stall_time > 9.0:
 		# Drop back on the road a little further up the course, clear of whatever caught us.
 		car.reset_to(track.snap_to_track(pos, 12.0))
-		_offtrack_time = 0.0
-		_stuck_time = 0.0
-		_reverse_timer = 0.0
-		_stall_time = 0.0
-		_best_offset = offset
+		track.invalidate_cursor(car)
+		reset_state()
 
 	car.input_throttle = throttle
 	car.input_brake = brake
