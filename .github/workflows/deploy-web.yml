@@ -55,6 +55,9 @@ jobs:
       - name: Physics smoke test
         run: ~/godot/godot --headless --path . res://tests/smoke_test.tscn
 
+      - name: Damage and gadget test
+        run: ~/godot/godot --headless --path . res://tests/gadget_test.tscn
+
       - name: Export web build
         run: |
           mkdir -p build/web

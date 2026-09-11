@@ -60,6 +60,8 @@ var _width_keys: Array = []              ## [offset, half_width] at stage edges
 var _mogul_zones: Array = []             ## [a, b, amp, wave]
 var _gates: Array = []                   ## [a, b, period, sway, gap_half] — clear line through hazards
 var _halls: Array = []                   ## [a, b] — ruined halls with a colonnade down the centre
+var _repair_stations: Array = []          ## [offset, lateral] for the AI to aim at
+var _pickups: Array[PickupBox] = []
 var _ground_y := 0.0                     ## Height of the plate under the whole course.
 var _ground_centre := Vector2.ZERO
 var _ground_span := 0.0
@@ -77,6 +79,7 @@ func _ready() -> void:
 	_build_shoulders_and_walls()
 	_build_ground()
 	_build_features()
+	_build_pickups()
 	_build_start_and_finish()
 
 
@@ -745,6 +748,7 @@ func _build_features() -> void:
 				"buildings": _build_buildings(a, b, cfg)
 				"arena": _build_arena(a, b, cfg)
 				"pit_apron": _build_pit_apron(a, b, cfg)
+				"repair": _build_repair_station(a, b, cfg)
 				"debris": _build_debris(a, b, cfg)
 				"moguls": pass          # folded into the road mesh by bump_at()
 
@@ -1098,6 +1102,48 @@ func _build_fallen_columns(a: float, b: float, cfg: Dictionary) -> void:
 				Basis(Vector3.FORWARD, PI * 0.5)
 		var p: Vector3 = surface_point(o, lat) + Vector3.UP * 1.3
 		_make_obstacle(mesh, shape, Transform3D(basis, p), STONE, "FallenColumn%d" % i)
+
+
+## A repair pad at the side of the road. The AI knows where these are.
+func _build_repair_station(a: float, b: float, cfg: Dictionary) -> void:
+	var o: float = lerpf(a, b, float(cfg["at"]))
+	var side: float = float(cfg["side"])
+	var lat: float = side * (width_at(o) - RepairStation.PAD_WIDTH * 0.5 - 0.6)
+	var f := frame_at(o)
+	var station := RepairStation.new()
+	station.transform = Transform3D(Basis.looking_at(f.tangent, Vector3.UP), surface_point(o, lat) + Vector3.UP * 0.02)
+	add_child(station)
+	_repair_stations.append([o, lat])
+
+
+## The nearest repair station ahead of an offset, as [offset, lateral], or [] if none within reach.
+func next_repair_station(offset: float, within: float) -> Array:
+	for st in _repair_stations:
+		if st[0] > offset - 10.0 and st[0] < offset + within:
+			return st
+	return []
+
+
+## A single gadget box every PICKUP_SPACING metres, wandering from one side of the road to
+## the other so it is not always on the racing line, and kept out of the halls.
+func _build_pickups() -> void:
+	var o := start_offset + 170.0
+	var n := 0
+	while o < finish_offset - 80.0:
+		if not _near_hall(o, 28.0):
+			var hw := width_at(o)
+			var lat := sin(float(n) * 1.9) * (hw - 2.5) * 0.7
+			var box := PickupBox.new()
+			box.position = surface_point(o, lat) + Vector3.UP * PickupBox.FLOAT_HEIGHT
+			add_child(box)
+			_pickups.append(box)
+		n += 1
+		o += RouteSpec.PICKUP_SPACING
+
+
+func reset_pickups() -> void:
+	for box in _pickups:
+		box.respawn_now()
 
 
 ## Loose crates that scatter on contact.

@@ -66,9 +66,15 @@ func _physics_process(delta: float) -> void:
 		if absf(rival_off - offset) < 9.0:
 			var rival_lane := track.lateral_offset_at(rival.global_position, rival_off)
 			lane = lerpf(lane, rival_lane, aggression * 0.9)
+	# Hurt? Swing over to a repair pad if one is coming up.
+	var my_lateral := track.lateral_offset_at(pos, offset)
+	if car.health < 45.0:
+		var station: Array = track.next_repair_station(offset, 220.0)
+		if not station.is_empty():
+			lane = float(station[1])
+
 	# Where hazards leave only a gap, thread it rather than holding a personal lane. Inside a
 	# ruined hall the gap is one of two lanes; asking with our own side keeps us in it.
-	var my_lateral := track.lateral_offset_at(pos, offset)
 	var gate: Vector2 = track.hazard_gate(ahead.offset, my_lateral)
 	if gate.y > 0.0:
 		lane = gate.x + lane_offset * gate.y * 0.5
@@ -146,3 +152,30 @@ func _physics_process(delta: float) -> void:
 	car.input_brake = brake
 	car.input_steer = steer_cmd
 	car.input_handbrake = false
+	_consider_gadget(offset, my_lateral, corner, speed, target_speed)
+
+
+## Simple triggers for whatever gadget the car is carrying.
+func _consider_gadget(offset: float, my_lateral: float, corner: float, speed: float, target_speed: float) -> void:
+	var slot := car.gadget_slot
+	if not slot.can_use():
+		return
+	var rival_along := INF
+	var rival_side := INF
+	if rival != null and is_instance_valid(rival):
+		var r_off := track.track_offset(rival)
+		rival_along = r_off - offset
+		rival_side = track.lateral_offset_at(rival.global_position, r_off) - my_lateral
+	match slot.gadget:
+		&"boost":
+			if corner < 0.25 and speed < target_speed + 4.0 and speed > 8.0:
+				slot.try_use()
+		&"shield":
+			if absf(rival_along) < 8.0 and absf(rival_side) < 5.0:
+				slot.try_use()
+		&"jump":
+			if _stuck_time > 0.8 or (rival_along > 2.0 and rival_along < 8.0 and absf(rival_side) < 2.5 and speed > 10.0):
+				slot.try_use()
+		&"oil":
+			if rival_along < -3.0 and rival_along > -16.0 and absf(rival_side) < 3.0:
+				slot.try_use()

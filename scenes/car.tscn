@@ -1,7 +1,36 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://scripts/car/raycast_car.gd" id="1_car"]
 [ext_resource type="Script" path="res://scripts/car/car_wheel.gd" id="2_wheel"]
+[ext_resource type="Script" path="res://scripts/car/gadget_slot.gd" id="3_slot"]
+
+[sub_resource type="StandardMaterial3D" id="mat_smoke"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+
+[sub_resource type="SphereMesh" id="mesh_smoke"]
+material = SubResource("mat_smoke")
+radius = 0.35
+height = 0.7
+radial_segments = 8
+rings = 4
+
+[sub_resource type="StandardMaterial3D" id="mat_shield"]
+transparency = 1
+cull_mode = 2
+shading_mode = 0
+albedo_color = Color(0.55, 0.95, 0.6, 0.28)
+emission_enabled = true
+emission = Color(0.55, 0.95, 0.6, 1)
+emission_energy_multiplier = 1.2
+
+[sub_resource type="SphereMesh" id="mesh_shield"]
+material = SubResource("mat_shield")
+radius = 3.1
+height = 6.2
+radial_segments = 24
+rings = 12
 
 [sub_resource type="BoxShape3D" id="shape_body"]
 size = Vector3(1.9, 0.5, 4.2)
@@ -56,6 +85,30 @@ shape = SubResource("shape_body")
 [node name="CabinShape" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0.1)
 shape = SubResource("shape_cabin")
+
+[node name="GadgetSlot" type="Node" parent="."]
+script = ExtResource("3_slot")
+
+[node name="Smoke" type="CPUParticles3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, -1.6)
+emitting = false
+amount = 18
+lifetime = 1.4
+local_coords = false
+mesh = SubResource("mesh_smoke")
+direction = Vector3(0, 1, 0)
+spread = 25.0
+gravity = Vector3(0, 1.6, 0)
+initial_velocity_min = 0.8
+initial_velocity_max = 1.8
+scale_amount_min = 0.6
+scale_amount_max = 1.6
+color = Color(0.25, 0.25, 0.27, 0.7)
+
+[node name="ShieldBubble" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 0)
+visible = false
+mesh = SubResource("mesh_shield")
 
 [node name="Visual" type="Node3D" parent="."]
 

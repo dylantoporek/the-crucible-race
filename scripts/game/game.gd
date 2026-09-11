@@ -92,9 +92,12 @@ func restart_at_stage(index: int) -> void:
 		car.reset_to(track.get_grid_transform(_grid_slot[car], line))
 		track.invalidate_cursor(car)
 		car.hits = 0
+		car.repair()
+		car.gadget_slot.reset()
 		var driver := car.get_node_or_null("AIDriver") as AIDriver
 		if driver:
 			driver.reset_state()
+	track.reset_pickups()
 	race_time = 0.0
 	player_finished = false
 	player_finish_time = 0.0
