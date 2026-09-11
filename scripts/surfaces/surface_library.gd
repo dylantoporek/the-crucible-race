@@ -16,7 +16,7 @@ func _init() -> void:
 			0.66, 0.82, 0.030, 0.06, 0.018, Color(0.55, 0.40, 0.22, 0.65), 12.0))
 	_register(SurfaceType.new(&"sand", "Sand", Color(0.86, 0.74, 0.47),
 			0.55, 0.72, 0.070, 0.28, 0.010, Color(0.90, 0.80, 0.55, 0.70), 6.0))
-	_register(SurfaceType.new(&"ice", "Ice", Color(0.70, 0.86, 0.97),
+	_register(SurfaceType.new(&"ice", "Ice", Color(0.50, 0.78, 0.97),
 			0.20, 0.65, 0.006, 0.00, 0.000, Color(0.85, 0.93, 1.00, 0.35), -1.0))
 	_register(SurfaceType.new(&"snow", "Snow", Color(0.94, 0.95, 0.97),
 			0.41, 0.75, 0.060, 0.22, 0.012, Color(1.00, 1.00, 1.00, 0.75), 6.0))

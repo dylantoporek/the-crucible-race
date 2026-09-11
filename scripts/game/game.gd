@@ -28,6 +28,8 @@ var player_finished := false
 var player_finish_time := 0.0
 var player_finish_place := 0
 
+var current_stage_index := 0     # where the last (re)start put the field
+
 var _progress: Dictionary = {}   # car -> 0..1 along the course
 var _finished: Dictionary = {}   # car -> finishing time
 var _places := 0
@@ -42,6 +44,57 @@ func _ready() -> void:
 	camera.target = player
 	camera.snap_behind_target()
 	hud.setup(self)
+	var requested := _stage_from_url()
+	if requested > 0:
+		restart_at_stage(requested)
+
+
+## `?stage=3` or `?stage=mountain` on the web build drops straight into that stage, so a
+## tester can be sent a link to the part of the course under discussion.
+func _stage_from_url() -> int:
+	if not OS.has_feature("web"):
+		return 0
+	var query := str(JavaScriptBridge.eval("window.location.search", true))
+	var re := RegEx.new()
+	re.compile("[?&]stage=([A-Za-z0-9_]+)")
+	var m := re.search(query)
+	if m == null:
+		return 0
+	var value := m.get_string(1).to_lower()
+	if value.is_valid_int():
+		return clampi(int(value) - 1, 0, track.stages().size() - 1)
+	var stages := track.stages()
+	for i in stages.size():
+		var spec: Dictionary = stages[i]["spec"]
+		if String(spec["id"]) == value or String(spec["name"]).to_lower().begins_with(value):
+			return i
+	return 0
+
+
+## Put the whole field on a grid at the start of a stage and restart the clock. Stage 0 is
+## the real start line.
+func restart_at_stage(index: int) -> void:
+	var stages := track.stages()
+	index = clampi(index, 0, stages.size() - 1)
+	var line: float = track.start_offset if index == 0 else float(stages[index]["a"])
+	for i in cars.size():
+		var car := cars[i]
+		car.reset_to(track.get_grid_transform(i, line))
+		track.invalidate_cursor(car)
+		car.hits = 0
+		var driver := car.get_node_or_null("AIDriver") as AIDriver
+		if driver:
+			driver.reset_state()
+	race_time = 0.0
+	player_finished = false
+	player_finish_time = 0.0
+	player_finish_place = 0
+	_finished.clear()
+	_places = 0
+	for car in cars:
+		_progress[car] = track.body_progress(car)
+	camera.snap_behind_target()
+	current_stage_index = index
 
 
 func _spawn_car(index: int, is_player: bool) -> RaycastCar:
@@ -83,6 +136,9 @@ func _process(delta: float) -> void:
 				player_finish_place = _places
 	if Input.is_action_just_pressed("toggle_debug"):
 		hud.visible = not hud.visible
+	for i in 6:
+		if Input.is_action_just_pressed("stage_%d" % (i + 1)):
+			restart_at_stage(i)
 
 
 ## 1-based race position, by distance covered; cars that have finished keep their place.
@@ -115,6 +171,7 @@ func distance_remaining(car: RaycastCar) -> float:
 
 func _on_player_reset() -> void:
 	player.reset_to(track.snap_to_track(player.global_position))
+	track.invalidate_cursor(player)
 
 
 func _on_player_impact(strength: float, _other: Node) -> void:

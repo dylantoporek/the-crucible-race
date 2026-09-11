@@ -52,7 +52,12 @@ godot --headless --path . --export-release "Web" build/web/index.html
 | Steer | A / D, Left / Right | Left stick |
 | Handbrake | Space | X |
 | Reset to track | R | Y |
+| Restart the field at stage 1–6 | 1–6 | |
 | Toggle HUD | F1 | |
+
+For testing a particular stretch, `?stage=3` (or `?stage=mountain`) on the web build's URL
+drops the whole field onto a grid at that stage's start, so a link can point straight at
+the part of the course under discussion.
 
 ## What is in the prototype
 
@@ -116,11 +121,13 @@ Two fields do most of the work:
   ceiling is about `1.15 × grip`: asphalt ~115%, dirt ~76%, sand ~63%, snow ~47%, ice ~23%.
 
 Hazards are declared per stage under `features`: `moguls` (folded into the road mesh, good
-for air), `pillars` (columns in the road with a gap that sways across it), `ice_patches`
-(scattered over snow, and kept off gradients ice cannot pull away from), `rocks`,
-`buildings`, `arena` stands, a `pit_apron`, and loose `debris`. Where hazards leave only a
-gap, the track publishes it via `hazard_gate()` and the AI threads it rather than driving
-into a column.
+for air), `ruin_halls` (the road runs under a broken roof with a colonnade down the centre,
+splitting it into two lanes), `pillars` (free-standing columns with a gap that sways across
+the road), `fallen_columns`, `ice_patches` (scattered over snow, and kept off gradients ice
+cannot pull away from), `rocks`, `buildings`, `arena` stands, a `pit_apron`, and loose
+`debris`. Where hazards leave only a gap, the track publishes it via `hazard_gate()` and
+the AI threads it rather than driving into a column; inside a hall it commits to whichever
+lane it is already on, starting 70 m before the first column.
 
 ## Tuning
 

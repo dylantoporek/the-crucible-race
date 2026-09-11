@@ -75,7 +75,7 @@ func _build() -> void:
 	_controls = _label(
 		"W/S or triggers  throttle / brake (brake when stopped = reverse)\n" +
 		"A/D or left stick  steer      Space or X  handbrake\n" +
-		"R  reset to track      F1  toggle HUD",
+		"R  reset to track      1-6  restart at stage      F1  toggle HUD",
 		font_small, HORIZONTAL_ALIGNMENT_LEFT)
 	_controls.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	_controls.offset_left = 24
