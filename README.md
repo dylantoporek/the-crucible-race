@@ -55,6 +55,9 @@ godot --headless --path . --export-release "Web" build/web/index.html
 | Restart the field at stage 1–6 | 1–6 | |
 | Toggle HUD | F1 | |
 
+The race starts with a READY / SET / GO hold of about two and a half seconds, on the
+initial grid and after every stage restart; the player lines up at the back of the pack.
+
 For testing a particular stretch, `?stage=3` (or `?stage=mountain`) on the web build's URL
 drops the whole field onto a grid at that stage's start, so a link can point straight at
 the part of the course under discussion.

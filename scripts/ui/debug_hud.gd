@@ -10,6 +10,7 @@ var _surface_label: Label
 var _grip_bar: ProgressBar
 var _race_label: Label
 var _progress_bar: ProgressBar
+var _countdown_label: Label
 var _telemetry: Label
 var _controls: Label
 
@@ -71,6 +72,16 @@ func _build() -> void:
 	_telemetry.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9, 0.85))
 	add_child(_telemetry)
 
+	# Centre: READY / SET / GO!
+	_countdown_label = _label("", 110, HORIZONTAL_ALIGNMENT_CENTER)
+	_countdown_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_countdown_label.offset_left = -400
+	_countdown_label.offset_right = 400
+	_countdown_label.offset_top = -160
+	_countdown_label.offset_bottom = -20
+	_countdown_label.add_theme_constant_override("outline_size", 14)
+	add_child(_countdown_label)
+
 	# Bottom-left: controls.
 	_controls = _label(
 		"W/S or triggers  throttle / brake (brake when stopped = reverse)\n" +
@@ -120,6 +131,10 @@ func _process(_delta: float) -> void:
 			game.position_of(player), game.cars.size(), _fmt_time(game.race_time),
 			player.hits, stage.get("name", ""), remaining]
 	_progress_bar.value = game.progress_of(player)
+	var cue: String = game.countdown_text()
+	_countdown_label.text = cue
+	_countdown_label.add_theme_color_override("font_color",
+			Color(0.35, 0.95, 0.45) if cue == "GO!" else Color(1.0, 0.92, 0.35))
 
 	var lines := PackedStringArray()
 	lines.append("FPS %d   grounded %d/4   steer %+.2f" % [Engine.get_frames_per_second(), player.grounded_wheels, player.steer])

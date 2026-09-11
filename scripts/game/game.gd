@@ -29,6 +29,14 @@ var player_finish_time := 0.0
 var player_finish_place := 0
 
 var current_stage_index := 0     # where the last (re)start put the field
+var countdown := 0.0             # seconds until the field is released
+var go_flash := 0.0              # how long "GO!" stays up after release
+
+const COUNTDOWN_SETTLE := 0.6    # cars drop onto the grid before READY
+const COUNTDOWN_BEAT := 1.0      # READY, then SET, each this long
+const GO_FLASH := 0.9
+
+var _grid_slot: Dictionary = {}  # car -> grid index
 
 var _progress: Dictionary = {}   # car -> 0..1 along the course
 var _finished: Dictionary = {}   # car -> finishing time
@@ -37,9 +45,10 @@ var _places := 0
 
 func _ready() -> void:
 	$Sun.rotation_degrees = Vector3(-52.0, -35.0, 0.0)
-	player = _spawn_car(0, true)
+	# The player starts at the back of the pack; the AI fills the grid ahead.
+	player = _spawn_car(ai_count, true)
 	for i in ai_count:
-		var ai := _spawn_car(i + 1, false)
+		var ai := _spawn_car(i, false)
 		(ai.get_node("AIDriver") as AIDriver).rival = player
 	camera.target = player
 	camera.snap_behind_target()
@@ -47,6 +56,8 @@ func _ready() -> void:
 	var requested := _stage_from_url()
 	if requested > 0:
 		restart_at_stage(requested)
+	else:
+		_begin_countdown()
 
 
 ## `?stage=3` or `?stage=mountain` on the web build drops straight into that stage, so a
@@ -77,9 +88,8 @@ func restart_at_stage(index: int) -> void:
 	var stages := track.stages()
 	index = clampi(index, 0, stages.size() - 1)
 	var line: float = track.start_offset if index == 0 else float(stages[index]["a"])
-	for i in cars.size():
-		var car := cars[i]
-		car.reset_to(track.get_grid_transform(i, line))
+	for car in cars:
+		car.reset_to(track.get_grid_transform(_grid_slot[car], line))
 		track.invalidate_cursor(car)
 		car.hits = 0
 		var driver := car.get_node_or_null("AIDriver") as AIDriver
@@ -95,6 +105,7 @@ func restart_at_stage(index: int) -> void:
 		_progress[car] = track.body_progress(car)
 	camera.snap_behind_target()
 	current_stage_index = index
+	_begin_countdown()
 
 
 func _spawn_car(index: int, is_player: bool) -> RaycastCar:
@@ -118,13 +129,51 @@ func _spawn_car(index: int, is_player: bool) -> RaycastCar:
 		ai.skill = randf_range(0.88, 1.02)
 		car.add_child(ai)
 	cars.append(car)
+	_grid_slot[car] = index
 	_progress[car] = track.body_progress(car)
 	return car
 
 
+## Hold the field on the grid: READY, SET, then release on GO.
+func _begin_countdown() -> void:
+	countdown = COUNTDOWN_SETTLE + 2.0 * COUNTDOWN_BEAT
+	go_flash = 0.0
+	for car in cars:
+		car.controls_locked = true
+
+
+## Release immediately (used by tests and handy for tuning).
+func skip_countdown() -> void:
+	countdown = 0.0
+	go_flash = 0.0
+	for car in cars:
+		car.controls_locked = false
+
+
+## What the big centre label should read right now, or "" for nothing.
+func countdown_text() -> String:
+	if countdown > 2.0 * COUNTDOWN_BEAT:
+		return ""
+	if countdown > COUNTDOWN_BEAT:
+		return "READY"
+	if countdown > 0.0:
+		return "SET"
+	if go_flash > 0.0:
+		return "GO!"
+	return ""
+
+
 func _process(delta: float) -> void:
-	if not player_finished:
-		race_time += delta
+	if countdown > 0.0:
+		countdown -= delta
+		if countdown <= 0.0:
+			go_flash = GO_FLASH
+			for car in cars:
+				car.controls_locked = false
+	else:
+		go_flash = maxf(go_flash - delta, 0.0)
+		if not player_finished:
+			race_time += delta
 	for car in cars:
 		_progress[car] = track.body_progress(car)
 		if not _finished.has(car) and _progress[car] >= 1.0:

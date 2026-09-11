@@ -27,6 +27,7 @@ func _ready() -> void:
 	driver.track = _game.track
 	driver.aggression = 0.0
 	_player.add_child(driver)
+	_game.skip_countdown()
 	var track: SprintTrack = _game.track
 	print("course: %.0f m total, %.0f m raced, %d stages, %d surface runs" % [
 		track.length, track.race_length, track.stages().size(), track._surface_runs.size()])
