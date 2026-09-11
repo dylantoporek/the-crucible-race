@@ -57,6 +57,8 @@ var input_throttle := 0.0      # 0..1
 var input_brake := 0.0         # 0..1 (doubles as reverse when stopped)
 var input_steer := 0.0         # -1 left .. +1 right
 var input_handbrake := false
+## While true the car ignores its driver and sits on the brakes (grid hold before GO).
+var controls_locked := false
 
 # Telemetry.
 var wheels: Array[CarWheel] = []
@@ -94,6 +96,13 @@ func _apply_paint() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if controls_locked:
+		# Hold on the handbrake, not the foot brake: brake-while-stopped means reverse.
+		input_throttle = 0.0
+		input_steer = 0.0
+		input_brake = 0.0
+		input_handbrake = true
+		reversing = false
 	var basis := global_transform.basis
 	var up := basis.y
 	var forward := -basis.z

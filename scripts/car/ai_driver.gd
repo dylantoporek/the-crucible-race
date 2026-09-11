@@ -40,6 +40,9 @@ func reset_state() -> void:
 func _physics_process(delta: float) -> void:
 	if track == null or car == null:
 		return
+	if car.controls_locked:
+		reset_state()
+		return
 	var length := track.length
 	var pos := car.global_position
 	var offset := track.track_offset(car)
