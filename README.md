@@ -52,6 +52,7 @@ godot --headless --path . --export-release "Web" build/web/index.html
 | Steer | A / D, Left / Right | Left stick |
 | Handbrake | Space | X |
 | Reset to track | R | Y |
+| Use gadget | Shift or E | A |
 | Restart the field at stage 1–6 | 1–6 | |
 | Toggle HUD | F1 | |
 
@@ -109,6 +110,32 @@ Track offsets are the reason this is affordable. `TestTrack.track_offset()` cach
 offset per body per physics frame and finds it by searching a 12 m window around where
 the body was last tick, instead of scanning all 2,292 baked points of the curve. It falls
 back to the full scan on a cache miss or when a body is reset or teleported.
+
+## Damage, repairs and gadgets
+
+- **Damage.** Every car has 100 health. Sideways and head-on impacts take it away —
+  landing a jump does not — with hits from other cars costing twice what walls and rocks
+  do. Damage cuts engine power (up to half) and top speed (up to a quarter), makes the car
+  pull toward the side it was hit on, darkens the paint and adds smoke past 50%. At zero
+  the car is crippled but still drives.
+- **Repair stations.** Green pads at the side of the road at the Waypoint Village pit, the
+  entrance to Foothill City and the summit. Drive onto one for a full repair; it costs you
+  the racing line. AI below 45% health will divert to the next one.
+- **Gadgets.** Glowing boxes sit on the road about every 480 m, one per spot. The first car
+  to drive through one that is not already armed takes it; a car that already holds a
+  gadget passes straight through and leaves it. Boxes do not come back until the race
+  restarts. A gadget is kept for the whole race and can be used again after a 20 s
+  cooldown. Shift, E or the A button fires it.
+
+| Gadget | What it does |
+|---|---|
+| Jump | Launches the car over whatever is in front of it. |
+| Shield | 5 s of no damage; any car that touches you is thrown and takes damage. |
+| Boost | 3 s of +75% engine power and +30% top speed. |
+| Oil Slick | Drops a puddle behind you that drives like ice for 10 s. |
+
+Definitions live in `scripts/gadgets/gadget_defs.gd`; effects in `scripts/car/gadget_slot.gd`.
+`tests/gadget_test.tscn` exercises all of it headlessly and runs in CI.
 
 ## Changing the map
 
@@ -169,8 +196,8 @@ tests/             smoke_test (headless physics check)
 
 ## Roadmap
 
-1. Damage: mesh deformation from contact impulses, detachable panels, performance loss.
-2. Pit stop mechanics — the apron and bays exist as geometry, but stopping does nothing yet.
+1. Visual damage: mesh deformation and detachable panels on top of today's paint, tilt and smoke.
+2. Pit stop mechanics beyond the repair pad — tyres, or a repair that takes time.
 3. Terrain under the course. Today there is one flat plate beneath everything, so an
    elevated stage reads as a ridge standing on a plain rather than a real mountain.
 3. Proper car model, outline pass, skid marks, engine and surface audio.

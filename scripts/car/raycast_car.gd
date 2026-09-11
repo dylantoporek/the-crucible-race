@@ -11,6 +11,9 @@ extends RigidBody3D
 ## before this node's physics tick (they use process_physics_priority = -1).
 
 signal impact(strength: float, other: Node)
+signal damaged(amount: float)
+signal wrecked
+signal repaired
 
 const GROUND_MASK := 0b101  # world + props
 
@@ -50,7 +53,25 @@ const GROUND_MASK := 0b101  # world + props
 @export var flip_recover_time := 2.5        ## Seconds upside-down before auto-righting
 @export var impact_threshold := 1500.0      ## Contact impulse (N*s) that counts as a hit
 
+@export_group("Damage")
+@export var max_health := 100.0
+@export var damage_soft_threshold := 1200.0 ## Sideways impulse (N*s) below which a hit is free
+@export var damage_per_impulse := 1.0 / 190.0 ## Health lost per N*s above the threshold
+@export var max_damage_per_hit := 45.0
+@export var static_damage_scale := 0.5      ## Walls and rocks hurt half as much as cars
+@export var power_loss_when_wrecked := 0.5  ## Fraction of engine force lost at zero health
+@export var speed_loss_when_wrecked := 0.25
+@export var pull_when_wrecked := 0.14       ## Steering bias toward the damaged side at zero health
+
 var paint_color := Color(0.9, 0.2, 0.15)
+
+# Damage and gadget state.
+var health := 100.0
+var pull_sign := 1.0             ## Which way a damaged car pulls: +1 right, -1 left
+var shielded := false            ## Immune, and throws anyone who touches us
+var engine_multiplier := 1.0     ## Set by gadgets (boost)
+var speed_multiplier := 1.0
+var _paint_mat: ShaderMaterial
 
 # Inputs, written by a driver each tick.
 var input_throttle := 0.0      # 0..1
@@ -80,11 +101,14 @@ func _ready() -> void:
 		if child is CarWheel:
 			wheels.append(child)
 	current_surface = Surfaces.default_surface
+	health = max_health
 	_apply_paint()
+	_update_damage_visuals()
 
 
 func _apply_paint() -> void:
 	var paint := ToonMaterial.make(paint_color, 3.0, 0.5, 0.3)
+	_paint_mat = paint
 	var dark := ToonMaterial.make(Color(0.12, 0.12, 0.13), 2.0, 0.6, 0.0)
 	for m in $Visual.get_children():
 		if m is MeshInstance3D:
@@ -131,6 +155,7 @@ func _physics_process(delta: float) -> void:
 	_apply_anti_roll(up)
 	_apply_aero(up, speed_abs)
 	_apply_yaw_damping(up)
+	($ShieldBubble as MeshInstance3D).visible = shielded
 	_pick_dominant_surface(surface_votes)
 
 	if grounded_wheels == 0:
@@ -140,8 +165,11 @@ func _physics_process(delta: float) -> void:
 
 
 func _update_steering(delta: float, speed_abs: float) -> void:
-	var rate := steer_speed if absf(input_steer) > absf(steer) else steer_return_speed
-	steer = move_toward(steer, clampf(input_steer, -1.0, 1.0), rate * delta)
+	var wanted := input_steer
+	if speed_abs > 3.0:
+		wanted += pull_sign * pull_when_wrecked * damage_fraction()
+	var rate := steer_speed if absf(wanted) > absf(steer) else steer_return_speed
+	steer = move_toward(steer, clampf(wanted, -1.0, 1.0), rate * delta)
 	var authority := lerpf(1.0, high_speed_steer_scale, clampf(speed_abs / top_speed, 0.0, 1.0))
 	# +input = right = clockwise about up = negative rotation.
 	var angle := -steer * deg_to_rad(max_steer_deg) * authority
@@ -156,12 +184,19 @@ func _update_reverse_state() -> void:
 		reversing = false
 
 
+## Top speed after damage and any boost.
+func effective_top_speed() -> float:
+	return top_speed * speed_multiplier * (1.0 - speed_loss_when_wrecked * damage_fraction())
+
+
 func _engine_force(speed_abs: float) -> float:
+	var force := max_engine_force * engine_multiplier * (1.0 - power_loss_when_wrecked * damage_fraction())
+	var top := effective_top_speed()
 	if reversing:
-		var rev_taper := 1.0 - clampf(speed_abs / (top_speed * 0.3), 0.0, 1.0)
-		return -input_brake * max_engine_force * reverse_force_scale * rev_taper
-	var taper := sqrt(1.0 - clampf(speed_abs / top_speed, 0.0, 1.0))
-	return input_throttle * max_engine_force * taper
+		var rev_taper := 1.0 - clampf(speed_abs / (top * 0.3), 0.0, 1.0)
+		return -input_brake * force * reverse_force_scale * rev_taper
+	var taper := sqrt(1.0 - clampf(speed_abs / top, 0.0, 1.0))
+	return input_throttle * force * taper
 
 
 func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, up: Vector3,
@@ -187,8 +222,9 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 	var normal: Vector3 = hit.normal
 	var surface := Surfaces.for_collider(hit.collider)
 	var dist := origin.distance_to(hit_pos)
-	if surface.bumpiness > 0.0:
-		dist += randf_range(-surface.bumpiness, surface.bumpiness) * clampf(speed_abs / 8.0, 0.0, 1.0)
+	var bump := surface.bumpiness + 0.02 * damage_fraction()
+	if bump > 0.0:
+		dist += randf_range(-bump, bump) * clampf(speed_abs / 8.0, 0.0, 1.0)
 
 	# --- Suspension ---
 	var compression := clampf(ray_len - dist, 0.0, w.suspension_rest)
@@ -357,18 +393,103 @@ func _pick_dominant_surface(votes: Dictionary) -> void:
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	# Only the part of the impulse across the car counts: landing a jump is not a crash.
+	var up := global_transform.basis.y
 	var strongest := 0.0
 	var other: Object = null
+	var side := 0.0
 	for i in state.get_contact_count():
-		var imp := state.get_contact_impulse(i).length()
-		if imp > strongest:
-			strongest = imp
+		var imp := state.get_contact_impulse(i)
+		var across := (imp - up * imp.dot(up)).length()
+		if across > strongest:
+			strongest = across
 			other = state.get_contact_collider_object(i)
+			side = state.get_contact_local_position(i).x
 	if strongest > impact_threshold and _impact_cooldown <= 0.0:
 		_impact_cooldown = 0.25
-		if other is RaycastCar:
+		var is_car := other is RaycastCar
+		if is_car:
 			hits += 1
 		impact.emit(strongest, other as Node)
+		if shielded:
+			if is_car:
+				call_deferred("_shield_throw", other)
+		else:
+			var dmg := clampf((strongest - damage_soft_threshold) * damage_per_impulse, 0.0, max_damage_per_hit)
+			if not is_car:
+				dmg *= static_damage_scale
+			if dmg > 0.0:
+				take_damage(dmg, side)
+
+
+## A shielded car throws whoever runs into it, and hurts them doing it.
+func _shield_throw(other: RaycastCar) -> void:
+	if not is_instance_valid(other):
+		return
+	var away := other.global_position - global_position
+	away.y = 0.0
+	if away.length_squared() < 0.01:
+		away = -global_transform.basis.z
+	away = away.normalized() + Vector3.UP * 0.35
+	other.apply_central_impulse(away.normalized() * other.mass * 7.5)
+	other.apply_torque_impulse(Vector3.UP * other.mass * randf_range(-3.0, 3.0))
+	other.take_damage(12.0, -sign(other.to_local(global_position).x))
+
+
+# ---------------------------------------------------------------- damage
+
+func damage_fraction() -> float:
+	return 1.0 - clampf(health / max_health, 0.0, 1.0)
+
+
+func is_wrecked() -> bool:
+	return health <= 0.0
+
+
+## `side` is the local x of the contact: positive means the right flank took it.
+func take_damage(amount: float, side: float = 0.0) -> void:
+	if amount <= 0.0 or shielded:
+		return
+	var was_alive := health > 0.0
+	health = maxf(health - amount, 0.0)
+	if side != 0.0:
+		pull_sign = signf(side)
+	damaged.emit(amount)
+	if was_alive and health <= 0.0:
+		wrecked.emit()
+	_update_damage_visuals()
+
+
+func repair() -> void:
+	if health >= max_health:
+		return
+	health = max_health
+	repaired.emit()
+	_update_damage_visuals()
+
+
+func _update_damage_visuals() -> void:
+	var d := damage_fraction()
+	if _paint_mat != null:
+		_paint_mat.set_shader_parameter("albedo", paint_color.lerp(Color(0.22, 0.21, 0.20), d * 0.85))
+	$Visual.rotation.z = deg_to_rad(4.0) * d * pull_sign
+	var smoke := $Smoke as CPUParticles3D
+	smoke.emitting = d > 0.5
+	smoke.amount = 18 if d < 0.8 else 34
+	($ShieldBubble as MeshInstance3D).visible = shielded
+
+
+## Hop: straight up with a little forward carry. Only from the ground.
+func jump(strength: float = 6.8) -> void:
+	if grounded_wheels < 2:
+		return
+	var fwd := -global_transform.basis.z
+	apply_central_impulse((Vector3.UP * strength + fwd * 1.2) * mass)
+
+
+var gadget_slot: GadgetSlot:
+	get:
+		return $GadgetSlot as GadgetSlot
 
 
 ## Teleport to a transform with zero velocity (used for resets and grid placement).

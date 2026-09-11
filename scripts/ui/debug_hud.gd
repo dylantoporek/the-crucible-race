@@ -11,6 +11,9 @@ var _grip_bar: ProgressBar
 var _race_label: Label
 var _progress_bar: ProgressBar
 var _countdown_label: Label
+var _health_bar: ProgressBar
+var _gadget_label: Label
+var _gadget_bar: ProgressBar
 var _telemetry: Label
 var _controls: Label
 
@@ -63,6 +66,31 @@ func _build() -> void:
 	_progress_bar.show_percentage = false
 	_progress_bar.custom_minimum_size = Vector2(340, 8)
 	race_box.add_child(_progress_bar)
+	race_box.add_child(_label("health", font_small, HORIZONTAL_ALIGNMENT_LEFT))
+	_health_bar = ProgressBar.new()
+	_health_bar.min_value = 0.0
+	_health_bar.max_value = 100.0
+	_health_bar.show_percentage = false
+	_health_bar.custom_minimum_size = Vector2(340, 10)
+	race_box.add_child(_health_bar)
+
+	# Bottom centre: the gadget you are carrying and whether it is ready.
+	var gadget_box := VBoxContainer.new()
+	gadget_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	gadget_box.offset_left = -170
+	gadget_box.offset_right = 170
+	gadget_box.offset_top = -92
+	gadget_box.offset_bottom = -28
+	gadget_box.alignment = BoxContainer.ALIGNMENT_END
+	add_child(gadget_box)
+	_gadget_label = _label("", font_mid, HORIZONTAL_ALIGNMENT_CENTER)
+	gadget_box.add_child(_gadget_label)
+	_gadget_bar = ProgressBar.new()
+	_gadget_bar.min_value = 0.0
+	_gadget_bar.max_value = 1.0
+	_gadget_bar.show_percentage = false
+	_gadget_bar.custom_minimum_size = Vector2(340, 8)
+	gadget_box.add_child(_gadget_bar)
 
 	# Left: per-wheel telemetry.
 	_telemetry = _label("", font_small, HORIZONTAL_ALIGNMENT_LEFT)
@@ -86,7 +114,7 @@ func _build() -> void:
 	_controls = _label(
 		"W/S or triggers  throttle / brake (brake when stopped = reverse)\n" +
 		"A/D or left stick  steer      Space or X  handbrake\n" +
-		"R  reset to track      1-6  restart at stage      F1  toggle HUD",
+		"Shift / E or A  use gadget      R  reset to track      1-6  restart at stage      F1  toggle HUD",
 		font_small, HORIZONTAL_ALIGNMENT_LEFT)
 	_controls.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	_controls.offset_left = 24
@@ -131,6 +159,34 @@ func _process(_delta: float) -> void:
 			game.position_of(player), game.cars.size(), _fmt_time(game.race_time),
 			player.hits, stage.get("name", ""), remaining]
 	_progress_bar.value = game.progress_of(player)
+
+	_health_bar.value = player.health
+	var hfill := StyleBoxFlat.new()
+	hfill.bg_color = Color(0.95, 0.25, 0.2).lerp(Color(0.3, 0.9, 0.4), clampf(player.health / 100.0, 0.0, 1.0))
+	_health_bar.add_theme_stylebox_override("fill", hfill)
+
+	var slot: GadgetSlot = player.gadget_slot
+	if slot.gadget == &"":
+		_gadget_label.text = "no gadget  ·  drive through a glowing box"
+		_gadget_label.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85, 0.8))
+		_gadget_bar.value = 0.0
+	else:
+		var gname := Gadgets.display_name(slot.gadget).to_upper()
+		var gcol := Gadgets.color_of(slot.gadget)
+		if slot.active > 0.0:
+			_gadget_label.text = "%s  ACTIVE  %.1fs" % [gname, slot.active]
+			_gadget_bar.value = 1.0
+		elif slot.cooldown > 0.0:
+			_gadget_label.text = "%s  %.0fs" % [gname, ceilf(slot.cooldown)]
+			_gadget_bar.value = 1.0 - slot.cooldown / Gadgets.COOLDOWN
+		else:
+			_gadget_label.text = "%s  READY" % gname
+			_gadget_bar.value = 1.0
+		_gadget_label.add_theme_color_override("font_color", gcol.lightened(0.2))
+		var gfill := StyleBoxFlat.new()
+		gfill.bg_color = gcol if slot.cooldown <= 0.0 else gcol.darkened(0.35)
+		_gadget_bar.add_theme_stylebox_override("fill", gfill)
+
 	var cue: String = game.countdown_text()
 	_countdown_label.text = cue
 	_countdown_label.add_theme_color_override("font_color",

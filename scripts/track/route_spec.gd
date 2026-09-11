@@ -20,7 +20,8 @@ extends RefCounted
 ##                     amplitude is whatever is left of this budget after the climb takes its
 ##                     share, so a stage can never out-climb the grip available on its surface.
 ##   hills_wave        wavelength of the rolling hills, metres
-##   features          hazards and scenery, see SprintTrack._build_features()
+##   features          hazards and scenery, see SprintTrack._build_features();
+##                     "repair": {at, side} places a repair station at that fraction of the stage
 ##
 ## For reference, the steepest grade a surface can pull away on is roughly
 ## 1.15 * its grip: asphalt ~115%, dirt ~76%, sand ~63%, snow ~47%, ice ~23%.
@@ -46,6 +47,7 @@ const STAGES: Array[Dictionary] = [
 		"climb": 10.0, "max_grade": 0.08, "hills_wave": 300.0,
 		"features": {
 			"pit_apron": {"at": 0.08, "length": 130.0, "side": 1.0, "width": 11.0},
+			"repair": {"at": 0.12, "side": 1.0},
 			"buildings": {"from": 0.34, "to": 0.94, "count": 34, "min_h": 5.0, "max_h": 13.0},
 			"debris": {"count": 8},
 		},
@@ -77,6 +79,7 @@ const STAGES: Array[Dictionary] = [
 		"tech": {"from": 0.46, "to": 0.78, "min_radius": 45.0, "bend_len": 130.0},
 		"climb": 90.0, "max_grade": 0.16, "hills_wave": 380.0,
 		"features": {
+			"repair": {"at": 0.10, "side": -1.0},
 			"buildings": {"from": 0.20, "to": 0.92, "count": 40, "min_h": 7.0, "max_h": 20.0},
 		},
 	},
@@ -101,6 +104,7 @@ const STAGES: Array[Dictionary] = [
 		"tech": {"from": 0.05, "to": 0.42, "min_radius": 55.0, "bend_len": 140.0},
 		"climb": -196.0, "max_grade": 0.22, "hills_wave": 320.0,
 		"features": {
+			"repair": {"at": 0.015, "side": 1.0},
 			"ice_patches": {"from": 0.04, "to": 0.22, "count": 5, "min_len": 10.0, "max_len": 20.0},
 			"rocks": {"from": 0.06, "to": 0.34, "count": 12},
 			# The finishing straight opens out and is lined with stands.
@@ -116,3 +120,5 @@ const START_RUN_UP := 130.0
 const FINISH_RUN_OFF := 220.0
 ## Distance over which road width eases from one stage's value to the next.
 const WIDTH_BLEND := 70.0
+## One gadget box every this many metres, drifting from side to side of the road.
+const PICKUP_SPACING := 480.0
