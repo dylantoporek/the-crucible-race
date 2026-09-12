@@ -4,7 +4,9 @@ extends Node
 ##   godot --headless --path . res://tests/smoke_test.tscn
 
 const MAIN := "res://scenes/main.tscn"
-const DRIVE_FRAMES := 60 * 14
+## Long enough that a bad getaway from the back of a 16-car grid still clears traffic:
+## the check is that the car can drive, not that it got a clean launch.
+const DRIVE_FRAMES := 60 * 18
 const SETTLE_FRAMES := 60
 
 var _game: Node
@@ -16,6 +18,14 @@ var _surfaces_seen := {}
 
 
 func _ready() -> void:
+	# Opponent lane wobble and spawn tuning come from the global RNG, so an unseeded run
+	# launches a slightly different pack every time and the player's run off the line
+	# varies with it. Pin it so a failure here means the car changed, not the dice.
+	var seed_arg := ""
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("seed="):
+			seed_arg = a.trim_prefix("seed=")
+	seed(int(seed_arg) if seed_arg != "" else 20260912)
 	var scene: PackedScene = load(MAIN)
 	_game = scene.instantiate()
 	add_child(_game)

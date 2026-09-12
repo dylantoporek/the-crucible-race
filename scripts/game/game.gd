@@ -141,7 +141,7 @@ func _spawn_car(index: int, is_player: bool) -> RaycastCar:
 			ai.style = AIDriver.RACER
 			ai.aggression = 0.0
 			ai.skill = randf_range(0.92, 1.04)
-			ai.preferred_gadget = [&"boost", &"jump"][randi() % 2]
+			ai.preferred_gadget = [&"boost", &"shield"][randi() % 2]
 		car.add_child(ai)
 	cars.append(car)
 	_grid_slot[car] = index

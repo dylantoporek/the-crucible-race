@@ -27,6 +27,7 @@ func give(id: StringName) -> bool:
 		return false
 	if active > 0.0:
 		_deactivate()
+		active = 0.0
 	gadget = id
 	changed.emit()
 	return true
@@ -100,8 +101,6 @@ func _process(delta: float) -> void:
 
 func _activate() -> void:
 	match gadget:
-		&"jump":
-			car.jump(6.8)
 		&"shield":
 			car.shielded = true
 			active = Gadgets.duration_of(gadget)

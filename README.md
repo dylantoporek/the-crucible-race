@@ -52,6 +52,7 @@ godot --headless --path . --export-release "Web" build/web/index.html
 | Steer | A / D, Left / Right | Left stick |
 | Handbrake | Space | X |
 | Reset to track (rolling restart) | R | Y |
+| Jump | C or Left Ctrl | B |
 | Use gadget | Shift or E | A |
 | Change gadget (after a pit stop) | Q / Tab | LB / RB |
 | Restart the field at stage 1–7 | 1–7 | |
@@ -128,7 +129,7 @@ back to the full scan on a cache miss or when a body is reset or teleported.
   a car does.
 - **Damage you can feel, not fight.** Anything above 50% health drives exactly like a
   fresh car; the paint darkens but nothing else changes. Below that the losses ramp in to
-  their full value at zero: 28% of engine power, 12% of top speed, and a mild pull toward
+  their full value at zero: 15% of engine power, 6% of top speed, and a slight pull toward
   the side you were hit on. Smoke starts past 50%. Even a wrecked car keeps most of its
   pace, so a bad race is a handicap rather than a retirement. The whole model is the
   Damage group in `scripts/car/raycast_car.gd`; `damage_grace` is the "nothing happens
@@ -139,6 +140,10 @@ back to the full scan on a cache miss or when a body is reset or teleported.
   passing traffic is not healed by accident. AI below 45% health will divert to the next one. A pit stop
   also opens a 6 s window in which you can pick any gadget with Q / Tab (LB / RB); a car
   that arrives without one is handed one. Swapping keeps whatever cooldown you had.
+- **Jump.** Every car has one, on its own button and its own 5 s cooldown, independent of
+  whatever gadget it is carrying. It is there to get you out of the nonsense — a spinning
+  car across the road, a crate, stopped traffic — so a pickup is always a real weapon
+  rather than a hop you already had. `JUMP_COOLDOWN` in `scripts/car/raycast_car.gd`.
 - **Gadgets.** A row of three glowing boxes sits across the road about every 480 m. The
   first car to drive through one that is not already armed takes it; a car that already
   holds a gadget passes straight through and leaves it. Boxes do not come back until the
@@ -151,7 +156,6 @@ back to the full scan on a cache miss or when a body is reset or teleported.
 
 | Gadget | What it does |
 |---|---|
-| Jump | Launches the car over whatever is in front of it. |
 | Shield | 5 s of no damage; any car that touches you is thrown and takes damage. |
 | Boost | 3 s of +75% engine power and +30% top speed. |
 | Oil Slick | Drops a puddle behind you that drives like ice for 10 s. |
