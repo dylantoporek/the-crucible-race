@@ -58,6 +58,9 @@ jobs:
       - name: Damage and gadget test
         run: ~/godot/godot --headless --path . res://tests/gadget_test.tscn
 
+      - name: Alternative routes test
+        run: ~/godot/godot --headless --path . res://tests/route_test.tscn
+
       - name: Export web build
         run: |
           mkdir -p build/web

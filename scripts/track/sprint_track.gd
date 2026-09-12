@@ -9,7 +9,7 @@ extends Node3D
 ## its own SurfaceType, and dressed with the hazards each stage asks for.
 
 const SAMPLE_STEP := 2.5          ## Distance between road cross-sections, metres.
-const CONTROL_STEP := 22.0        ## Distance between generated curve control points, metres.
+const CONTROL_STEP := 10.0        ## Distance between generated curve control points, metres.
 const TRANSITION_LENGTH := 34.0   ## Length of a surface blend zone, metres.
 const TRANSITION_BANDS := 6       ## Discrete grip steps inside a blend zone.
 const SHOULDER_WIDTH := 4.0
@@ -67,6 +67,39 @@ var _ground_centre := Vector2.ZERO
 var _ground_span := 0.0
 var _cursor_offset: Dictionary = {}
 var _cursor_frame: Dictionary = {}
+var _cursor_line: Dictionary = {}        ## body id -> RouteLine it is on (absent = main road)
+var _cursor_s: Dictionary = {}           ## body id -> distance along that branch
+var _branches: Array[RouteLine] = []
+var _wall_gaps: Array = []               ## [a, b, side] — main-road wall left out where a branch joins
+
+const TUNNEL_HEIGHT := 5.0
+const BRANCH_LIFT := 0.03                ## Branch pavement sits a hair above the shoulder it crosses
+
+
+## An alternative route: its own curve from a fork on the main road to a merge further on.
+## Distances along it map back onto main-road offsets, so progress and positions still
+## compare between cars on different routes.
+class RouteLine:
+	var id: StringName
+	var display_name := ""
+	var main_name := ""                   ## What the main road is called between fork and merge
+	var kind: StringName = &"surface"
+	var curve := Curve3D.new()
+	var length := 0.0
+	var frames: Array[Dictionary] = []
+	var fork := 0.0
+	var merge := 0.0
+	var side := 1.0
+	var half_width := 8.0
+	var depth := 0.0
+	var buildings := 0
+	var covered := Vector2.ZERO          ## fraction of the branch under a roof (tunnels)
+
+	func map_to_main(s: float) -> float:
+		return fork + clampf(s / maxf(length, 0.001), 0.0, 1.0) * (merge - fork)
+
+	func map_from_main(offset: float) -> float:
+		return clampf((offset - fork) / maxf(merge - fork, 0.001), 0.0, 1.0) * length
 
 
 func _ready() -> void:
@@ -74,8 +107,10 @@ func _ready() -> void:
 	_generate_path()
 	_sample_frames()
 	_plan_surfaces()
+	_plan_branches()
 	_compute_ground_level()
 	_build_road()
+	_build_branches()
 	_build_shoulders_and_walls()
 	_build_ground()
 	_build_features()
@@ -120,6 +155,30 @@ func _generate_path() -> void:
 			push_warning("Stage '%s' climbs %.0f m in %.0f m (%.0f%%), over its %.0f%% budget." % [
 					spec["name"], climb, stage_len, climb_grade * 100.0, max_grade * 100.0])
 
+		# City corners: each jog is an arc one way, a short straight, and the same arc back,
+		# so the road steps sideways a block. Jogs alternate, so the mean heading holds.
+		var jog_arcs: Array = []      # [t_from, t_to, radians]
+		var jog_cfg: Dictionary = spec.get("jogs", {})
+		if not jog_cfg.is_empty():
+			var jog_angle := deg_to_rad(float(jog_cfg["angle"]))
+			var arc_len: float = float(jog_cfg["radius"]) * jog_angle
+			var gap: float = float(jog_cfg.get("gap", 18.0))
+			var count := int(jog_cfg["count"])
+			for j in count:
+				var centre: float = lerpf(float(jog_cfg["from"]), float(jog_cfg["to"]),
+						(float(j) + 0.5) / float(count)) * stage_len
+				var dir := 1.0 if j % 2 == 0 else -1.0
+				var a0: float = centre - gap * 0.5 - arc_len
+				var b0: float = centre + gap * 0.5
+				jog_arcs.append([a0 / stage_len, (a0 + arc_len) / stage_len, dir * jog_angle])
+				jog_arcs.append([b0 / stage_len, (b0 + arc_len) / stage_len, -dir * jog_angle])
+		# The net turn is spread over the whole stage, or over whatever lies outside a
+		# no-turn window (where alternative routes need the road to hold its heading).
+		var no_turn: Array = spec.get("no_turn", [])
+		var turn_share := 1.0 / float(n)
+		if no_turn.size() == 2:
+			turn_share = 1.0 / (float(n) * maxf(1.0 - (float(no_turn[1]) - float(no_turn[0])), 0.05))
+
 		for i in n:
 			var t := float(i) / float(n)
 			# Heading: a steady net turn plus a local S-bend whose amplitude comes from the
@@ -134,15 +193,30 @@ func _generate_path() -> void:
 			var wiggle: float = amp * (
 					sin(d / bend_len * TAU) * WIGGLE_W1
 					+ sin(d / (bend_len * WIGGLE_R2) * TAU + 1.7) * WIGGLE_W2)
-			heading += deg_to_rad(float(spec["turn"])) / float(n)
+			# Each arc's angle is spread exactly over the steps it overlaps, so a corner never
+			# rounds to more or less than it was written as.
+			var t_next := float(i + 1) / float(n)
+			var in_jog := false
+			for arc in jog_arcs:
+				var overlap: float = minf(t_next, float(arc[1])) - maxf(t, float(arc[0]))
+				if overlap > 0.0:
+					heading += float(arc[2]) * overlap / maxf(float(arc[1]) - float(arc[0]), 1.0e-6)
+					in_jog = true
+			if in_jog:
+				wiggle = 0.0
+			if no_turn.size() != 2 or t < float(no_turn[0]) or t >= float(no_turn[1]):
+				heading += deg_to_rad(float(spec["turn"])) * turn_share
 
 			pts.append(Vector3(pos.x, y, pos.y))
 			var dir := heading + wiggle
 			pos += Vector2(cos(dir), sin(dir)) * step
 			travelled += step
 
+			# Hills are phased from the stage's own start and windowed to nothing at both ends,
+			# so the road never steps where one stage's profile hands over to the next.
 			var tn := float(i + 1) / float(n)
-			y = base_y + climb * _elev_ease(tn) + hills_amp * sin(travelled / hills_wave * TAU)
+			y = base_y + climb * _elev_ease(tn) \
+					+ hills_amp * sin((travelled - stage_start) / hills_wave * TAU) * sin(PI * tn)
 
 		_stages.append({"spec": spec, "a": stage_start, "b": travelled,
 				"min_radius": float(spec.get("min_radius", 120.0)),
@@ -159,6 +233,7 @@ func _generate_path() -> void:
 
 	curve.clear_points()
 	curve.bake_interval = 1.5
+	curve.up_vector_enabled = false      # never sampled, and baking them warns on straight runs
 	var n_pts := pts.size()
 	for i in n_pts:
 		var prev: Vector3 = pts[maxi(i - 1, 0)]
@@ -221,8 +296,17 @@ static func _elev_ease(t: float) -> float:
 	return (t - ELEV_EASE * 0.5) / (1.0 - ELEV_EASE)
 
 
-## Half-width of the road at an offset, easing across stage boundaries.
-func width_at(offset: float) -> float:
+## Half-width of the road at an offset, easing across stage boundaries. On a branch, its
+## own width once it has pulled away from the main road.
+func width_at(offset: float, line: RouteLine = null) -> float:
+	if line != null:
+		var s := line.map_from_main(offset)
+		var t := clampf(minf(s, line.length - s) / 70.0, 0.0, 1.0)
+		return lerpf(_main_width_at(offset), line.half_width, t)
+	return _main_width_at(offset)
+
+
+func _main_width_at(offset: float) -> float:
 	var n := _width_keys.size()
 	for i in range(n - 1):
 		var a: Array = _width_keys[i]
@@ -251,7 +335,9 @@ func grade_at(offset: float) -> float:
 ## A zero half-width means there is nothing to dodge here. Drivers use this to thread the
 ## ruins rather than driving into a column. Inside a hall the road is split in two by the
 ## colonnade, so the gap returned is the lane on the side of `prefer_lateral`.
-func hazard_gate(offset: float, prefer_lateral: float = 0.0) -> Vector2:
+func hazard_gate(offset: float, prefer_lateral: float = 0.0, line: RouteLine = null) -> Vector2:
+	if line != null:
+		return Vector2.ZERO
 	for h in _halls:
 		if offset >= h[0] - HALL_APPROACH and offset <= h[1]:
 			var hw := width_at(offset)
@@ -284,18 +370,28 @@ func bump_at(offset: float) -> float:
 
 # ---------------------------------------------------------------- frames
 
-func frame_at(offset: float) -> Dictionary:
-	offset = clampf(offset, 0.0, length)
-	var pos := curve.sample_baked(offset, true)
-	var ahead := curve.sample_baked(clampf(offset + 0.75, 0.0, length), true)
-	var behind := curve.sample_baked(clampf(offset - 0.75, 0.0, length), true)
+## Position and axes of the road at a main-road offset; on a branch, the branch's frame at
+## the point that maps to that offset.
+func frame_at(offset: float, line: RouteLine = null) -> Dictionary:
+	if line != null:
+		var f := _curve_frame(line.curve, line.map_from_main(offset), line.length)
+		f["offset"] = clampf(offset, line.fork, line.merge)
+		return f
+	return _curve_frame(curve, offset, length)
+
+
+static func _curve_frame(c: Curve3D, s: float, len: float) -> Dictionary:
+	s = clampf(s, 0.0, len)
+	var pos := c.sample_baked(s, true)
+	var ahead := c.sample_baked(clampf(s + 0.75, 0.0, len), true)
+	var behind := c.sample_baked(clampf(s - 0.75, 0.0, len), true)
 	var tangent := ahead - behind
 	if tangent.length_squared() < 1.0e-6:
 		tangent = Vector3.FORWARD
 	tangent = tangent.normalized()
 	var right := tangent.cross(Vector3.UP).normalized()
 	var up := right.cross(tangent).normalized()
-	return {"pos": pos, "tangent": tangent, "right": right, "up": up, "offset": offset}
+	return {"pos": pos, "tangent": tangent, "right": right, "up": up, "offset": s}
 
 
 func _sample_frames() -> void:
@@ -387,45 +483,132 @@ func offset_of(global_pos: Vector3) -> float:
 
 
 ## Offset for a moving body, cached per physics frame and found by searching near where the
-## body was last tick. Falls back to the full scan on a miss, reset or teleport.
+## body was last tick. Falls back to the full scan on a miss, reset or teleport. A body on
+## an alternative route is tracked along that route and reports the main-road offset its
+## position maps to, so it still ranks and progresses against everyone else.
 func track_offset(body: Node3D) -> float:
 	var id := body.get_instance_id()
 	var frame := Engine.get_physics_frames()
 	if _cursor_frame.get(id, -1) == frame:
 		return _cursor_offset[id]
-	var offset: float
-	if _cursor_offset.has(id):
-		offset = _offset_near(body.global_position, _cursor_offset[id])
-	else:
-		offset = offset_of(body.global_position)
-		_prune_cursors()
+	var local := to_local(body.global_position)
+	var offset := 0.0
+	var line: RouteLine = _cursor_line.get(id)
+	if line != null:
+		var s := _offset_near_curve(line.curve, line.length, local, _cursor_s[id], CURSOR_RADIUS)
+		var f := _curve_frame(line.curve, s, line.length)
+		var d: Vector3 = local - f.pos
+		if s >= line.length - 3.0 or absf(d.dot(f.right)) > line.half_width + SHOULDER_WIDTH + 5.0 \
+				or absf(d.dot(f.up)) > 5.0:
+			# Rejoined the main road (or fell off the branch): carry on from the mapped point.
+			_cursor_line.erase(id)
+			_cursor_s.erase(id)
+			_cursor_offset[id] = line.map_to_main(s)
+			line = null
+		else:
+			_cursor_s[id] = s
+			offset = line.map_to_main(s)
+	if line == null:
+		if _cursor_offset.has(id):
+			offset = _offset_near_curve(curve, length, local, _cursor_offset[id], CURSOR_RADIUS)
+		else:
+			offset = offset_of(body.global_position)
+			_prune_cursors()
+		# Onto a branch? Only possible over its first stretch, while it still runs beside the road.
+		for br in _branches:
+			if offset < br.fork + 6.0 or offset > br.fork + (br.merge - br.fork) * 0.4:
+				continue
+			var s := _offset_near_curve(br.curve, br.length, local, br.map_from_main(offset), 40.0)
+			var f := _curve_frame(br.curve, s, br.length)
+			var d: Vector3 = local - f.pos
+			var lat := absf(d.dot(f.right))
+			var vert := absf(d.dot(f.up))
+			if lat < br.half_width + 1.5 and vert < 3.5:
+				var mf := frame_at(offset)
+				var md: Vector3 = local - mf.pos
+				var main_lat: float = md.dot(mf.right)
+				# Still on the main road until it has crossed that road's edge on the branch side.
+				if main_lat * br.side < _main_width_at(offset) - 1.0:
+					continue
+				if lat + vert < absf(main_lat) + absf(md.dot(mf.up)):
+					_cursor_line[id] = br
+					_cursor_s[id] = s
+					offset = br.map_to_main(s)
+					break
 	_cursor_offset[id] = offset
 	_cursor_frame[id] = frame
 	return offset
 
 
-func _offset_near(global_pos: Vector3, hint: float) -> float:
-	var local := to_local(global_pos)
+## The alternative route a body is on, or null on the main road.
+func route_of(body: Node3D) -> RouteLine:
+	track_offset(body)
+	return _cursor_line.get(body.get_instance_id())
+
+
+func branches() -> Array[RouteLine]:
+	return _branches
+
+
+## Branches whose fork lies between `behind` metres back and `ahead` metres on from an offset.
+func branches_forking(offset: float, ahead: float, behind: float) -> Array[RouteLine]:
+	var out: Array[RouteLine] = []
+	for br in _branches:
+		if br.fork >= offset - behind and br.fork <= offset + ahead:
+			out.append(br)
+	return out
+
+
+## A one-line heads-up for the HUD when a route split is coming.
+func fork_hint(offset: float) -> String:
+	for line in _branches:
+		var d := line.fork - offset
+		if d > 15.0 and d < 300.0:
+			var left := ""
+			var right := ""
+			for br in _branches:
+				if absf(br.fork - line.fork) < 1.0:
+					if br.side < 0.0:
+						left = br.display_name
+					else:
+						right = br.display_name
+			var parts := PackedStringArray()
+			if left != "":
+				parts.append("<  %s" % left.to_upper())
+			parts.append(line.main_name.to_upper() if line.main_name != "" else "STRAIGHT ON")
+			if right != "":
+				parts.append("%s  >" % right.to_upper())
+			return "ROUTE SPLIT IN %d m      %s" % [int(d / 10.0) * 10, "      ".join(parts)]
+	return ""
+
+
+## Nearest point along a curve to `local`, searched `radius` either side of `hint`; a full
+## scan if the hint was wrong (teleport, reset).
+func _offset_near_curve(c: Curve3D, len: float, local: Vector3, hint: float, radius: float) -> float:
 	var best := hint
 	var best_d := INF
-	var o := hint - CURSOR_RADIUS
-	while o <= hint + CURSOR_RADIUS:
-		var d := local.distance_squared_to(curve.sample_baked(clampf(o, 0.0, length), true))
+	var o := hint - radius
+	while o <= hint + radius:
+		var d := local.distance_squared_to(c.sample_baked(clampf(o, 0.0, len), true))
 		if d < best_d:
 			best_d = d
 			best = o
 		o += CURSOR_COARSE_STEP
-	if absf(best - hint) >= CURSOR_RADIUS - CURSOR_COARSE_STEP * 0.5:
-		return offset_of(global_pos)
+	if absf(best - hint) >= radius - CURSOR_COARSE_STEP * 0.5:
+		return c.get_closest_offset(local)
 	var fine := best
 	o = best - CURSOR_COARSE_STEP
 	while o <= best + CURSOR_COARSE_STEP:
-		var d := local.distance_squared_to(curve.sample_baked(clampf(o, 0.0, length), true))
+		var d := local.distance_squared_to(c.sample_baked(clampf(o, 0.0, len), true))
 		if d < best_d:
 			best_d = d
 			fine = o
 		o += CURSOR_FINE_STEP
-	return clampf(fine, 0.0, length)
+	return clampf(fine, 0.0, len)
+
+
+func _offset_near(global_pos: Vector3, hint: float) -> float:
+	return _offset_near_curve(curve, length, to_local(global_pos), hint, CURSOR_RADIUS)
 
 
 ## Forget a body's cached offset after it has been moved, so the next lookup starts fresh
@@ -434,6 +617,8 @@ func invalidate_cursor(body: Node3D) -> void:
 	var id := body.get_instance_id()
 	_cursor_offset.erase(id)
 	_cursor_frame.erase(id)
+	_cursor_line.erase(id)
+	_cursor_s.erase(id)
 
 
 func _prune_cursors() -> void:
@@ -441,6 +626,8 @@ func _prune_cursors() -> void:
 		if not is_instance_valid(instance_from_id(id)):
 			_cursor_offset.erase(id)
 			_cursor_frame.erase(id)
+			_cursor_line.erase(id)
+			_cursor_s.erase(id)
 
 
 ## 0 at the start line, 1 at the finish line.
@@ -452,8 +639,8 @@ func progress_of(global_pos: Vector3) -> float:
 	return clampf((offset_of(global_pos) - start_offset) / maxf(race_length, 1.0), 0.0, 1.0)
 
 
-func lateral_offset_at(global_pos: Vector3, offset: float) -> float:
-	var f := frame_at(offset)
+func lateral_offset_at(global_pos: Vector3, offset: float, line: RouteLine = null) -> float:
+	var f := frame_at(offset, line)
 	return (to_local(global_pos) - f.pos).dot(f.right)
 
 
@@ -461,8 +648,8 @@ func lateral_offset(global_pos: Vector3) -> float:
 	return lateral_offset_at(global_pos, offset_of(global_pos))
 
 
-func distance_from_center_at(global_pos: Vector3, offset: float) -> float:
-	return absf(lateral_offset_at(global_pos, offset))
+func distance_from_center_at(global_pos: Vector3, offset: float, line: RouteLine = null) -> float:
+	return absf(lateral_offset_at(global_pos, offset, line))
 
 
 func distance_from_center(global_pos: Vector3) -> float:
@@ -470,16 +657,37 @@ func distance_from_center(global_pos: Vector3) -> float:
 
 
 ## Height of the driving surface, moguls included, at an offset.
-func surface_point(offset: float, lateral: float) -> Vector3:
-	var f := frame_at(offset)
+func surface_point(offset: float, lateral: float, line: RouteLine = null) -> Vector3:
+	var f := frame_at(offset, line)
 	var p: Vector3 = f.pos + f.right * lateral
-	p.y += bump_at(offset)
+	if line == null:
+		p.y += bump_at(offset)
 	return p
+
+
+## The branch a point is sitting on, if any.
+func _line_near(global_pos: Vector3) -> RouteLine:
+	var local := to_local(global_pos)
+	for br in _branches:
+		var cp := br.curve.get_closest_point(local)
+		var d := local - cp
+		if absf(d.y) < 4.0 and Vector2(d.x, d.z).length() < br.half_width + SHOULDER_WIDTH + 2.0:
+			return br
+	return null
 
 
 ## Put a car back on the road near where it is now. `advance` moves it a little further up
 ## the course so it does not land back against whatever stopped it.
-func snap_to_track(global_pos: Vector3, advance: float = 0.0) -> Transform3D:
+func snap_to_track(global_pos: Vector3, advance: float = 0.0, line: RouteLine = null) -> Transform3D:
+	if line == null:
+		line = _line_near(global_pos)
+	if line != null:
+		var s := clampf(line.curve.get_closest_offset(to_local(global_pos)) + advance, 0.0, line.length)
+		var bf := _curve_frame(line.curve, s, line.length)
+		var bhw := width_at(line.map_to_main(s), line)
+		var blane := clampf((to_local(global_pos) - bf.pos).dot(bf.right), -bhw + 2.0, bhw - 2.0)
+		var borigin: Vector3 = to_global(bf.pos + bf.right * blane + Vector3.UP * 1.4)
+		return Transform3D(Basis.looking_at(global_transform.basis * bf.tangent, Vector3.UP), borigin)
 	var off := clampf(offset_of(global_pos) + advance, 0.0, length)
 	var f := frame_at(off)
 	var hw := width_at(off)
@@ -531,6 +739,28 @@ func _strip(st: SurfaceTool, i0: int, i1: int, corners: Callable) -> void:
 		for v in [qa[0], qb[0], qb[1], qa[0], qb[1], qa[1]]:
 			st.set_normal(n)
 			st.add_vertex(v)
+
+
+## Like _strip, but leaves out quads where the wall on that side must open for a branch.
+func _strip_skipping(st: SurfaceTool, i0: int, i1: int, corners: Callable, side: float) -> void:
+	for i in range(i0, i1):
+		var a: Dictionary = _frames[i]
+		var b: Dictionary = _frames[i + 1]
+		if _in_wall_gap(float(a["offset"]), side) or _in_wall_gap(float(b["offset"]), side):
+			continue
+		var qa: Array = corners.call(a)
+		var qb: Array = corners.call(b)
+		var n: Vector3 = a["up"]
+		for v in [qa[0], qb[0], qb[1], qa[0], qb[1], qa[1]]:
+			st.set_normal(n)
+			st.add_vertex(v)
+
+
+func _in_wall_gap(offset: float, side: float) -> bool:
+	for g in _wall_gaps:
+		if float(g[2]) == side and offset >= float(g[0]) and offset <= float(g[1]):
+			return true
+	return false
 
 
 func _make_body(mesh: ArrayMesh, color: Color, surface_id: StringName, body_name: String,
@@ -618,12 +848,12 @@ func _build_shoulders_and_walls() -> void:
 
 	var walls := SurfaceTool.new()
 	walls.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_strip(walls, 0, last, func(f: Dictionary) -> Array:
+	_strip_skipping(walls, 0, last, func(f: Dictionary) -> Array:
 		var base: Vector3 = _road_corners(f, SHOULDER_WIDTH)[0]
-		return [base + Vector3.UP * WALL_HEIGHT, base])
-	_strip(walls, 0, last, func(f: Dictionary) -> Array:
+		return [base + Vector3.UP * WALL_HEIGHT, base], -1.0)
+	_strip_skipping(walls, 0, last, func(f: Dictionary) -> Array:
 		var base: Vector3 = _road_corners(f, SHOULDER_WIDTH)[1]
-		return [base, base + Vector3.UP * WALL_HEIGHT])
+		return [base, base + Vector3.UP * WALL_HEIGHT], 1.0)
 	_make_body(walls.commit(), Color(0.85, 0.16, 0.14), &"asphalt", "Walls", 2.0, 0.55)
 
 	# The skirt runs all the way down to the ground plate, so an elevated stretch reads as a
@@ -651,6 +881,12 @@ func _compute_ground_level() -> void:
 		xs.append(p.x)
 		zs.append(p.z)
 		lowest = minf(lowest, p.y)
+	for br in _branches:
+		for f in br.frames:
+			var p: Vector3 = f["pos"]
+			xs.append(p.x)
+			zs.append(p.z)
+			lowest = minf(lowest, p.y)
 	_ground_y = lowest - 26.0
 	_ground_centre = Vector2((xs.min() + xs.max()) * 0.5, (zs.min() + zs.max()) * 0.5)
 	_ground_span = maxf(xs.max() - xs.min(), zs.max() - zs.min()) + 1200.0
@@ -882,18 +1118,32 @@ func _build_buildings(a: float, b: float, cfg: Dictionary) -> void:
 		var hw := width_at(o)
 		var side: float = -1.0 if _rng.randf() < 0.5 else 1.0
 		var depth: float = _rng.randf_range(4.0, 13.0)
-		var lat: float = side * (hw + SHOULDER_WIDTH + 2.0 + depth * 0.5)
+		var lat: float = side * (hw + SHOULDER_WIDTH + 1.2 + depth * 0.5)
 		var w: float = _rng.randf_range(6.0, 12.0)
 		var d: float = _rng.randf_range(6.0, 12.0)
 		var h: float = _rng.randf_range(float(cfg["min_h"]), float(cfg["max_h"]))
+		var f := frame_at(o)
+		var p: Vector3 = f.pos + f.right * lat + Vector3.UP * (h * 0.5 - 1.0)
+		if _in_branch_footprint(p, null, maxf(w, d) * 0.5):
+			continue
 		var mesh := BoxMesh.new()
 		mesh.size = Vector3(w, h, d)
 		var shape := BoxShape3D.new()
 		shape.size = mesh.size
-		var f := frame_at(o)
-		var p: Vector3 = f.pos + f.right * lat + Vector3.UP * (h * 0.5 - 1.0)
 		var basis := Basis.looking_at(f.tangent, Vector3.UP).rotated(Vector3.UP, _rng.randf_range(-0.25, 0.25))
 		_make_obstacle(mesh, shape, Transform3D(basis, p), palette[i % palette.size()], "Building%d" % i)
+
+
+## True if a point (with a footprint radius) would sit on an alternative route.
+func _in_branch_footprint(p: Vector3, except: RouteLine, radius: float) -> bool:
+	for br in _branches:
+		if br == except:
+			continue
+		var cp := br.curve.get_closest_point(p)
+		var d := p - cp
+		if Vector2(d.x, d.z).length() < br.half_width + radius + 3.0 and absf(d.y) < 14.0:
+			return true
+	return false
 
 
 ## The finishing straight: tiered stands packed with colour on both sides.
@@ -1135,14 +1385,23 @@ func _build_pickups() -> void:
 			var hw := width_at(o)
 			var gap := minf(3.4, (hw - 2.2) / 2.0)
 			var centre := sin(float(n) * 1.9) * (hw - 2.2 - gap) * 0.6
-			for k in PickupBox.ROW_COUNT:
-				var lat := centre + (float(k) - (PickupBox.ROW_COUNT - 1) * 0.5) * gap
-				var box := PickupBox.new()
-				box.position = surface_point(o, lat) + Vector3.UP * PickupBox.FLOAT_HEIGHT
-				add_child(box)
-				_pickups.append(box)
+			var f := frame_at(o)
+			_pickup_row(f.pos + f.right * centre + Vector3.UP * bump_at(o), f.right, gap)
 		n += 1
 		o += RouteSpec.PICKUP_SPACING
+	# One row halfway along each alternative route, so taking it costs nothing in gadgets.
+	for br in _branches:
+		var f := _curve_frame(br.curve, br.length * 0.5, br.length)
+		_pickup_row(f.pos, f.right, minf(3.4, (br.half_width - 2.2) / 2.0))
+
+
+func _pickup_row(centre: Vector3, right: Vector3, gap: float) -> void:
+	for k in PickupBox.ROW_COUNT:
+		var box := PickupBox.new()
+		box.position = centre + right * ((float(k) - (PickupBox.ROW_COUNT - 1) * 0.5) * gap) \
+				+ Vector3.UP * PickupBox.FLOAT_HEIGHT
+		add_child(box)
+		_pickups.append(box)
 
 
 func reset_pickups() -> void:
@@ -1151,6 +1410,297 @@ func reset_pickups() -> void:
 
 
 ## Loose crates that scatter on contact.
+# ---------------------------------------------------------------- alternative routes
+
+## Lay out each alternative route's centre line. Waypoints sit relative to the straight
+## chord from fork to merge, so a branch has its own shape instead of copying the main
+## road's wiggles, and its height follows the main road at both ends so the junctions are flat.
+func _plan_branches() -> void:
+	_branches.clear()
+	for st in _stages:
+		var spec: Dictionary = st["spec"]
+		for cfg: Dictionary in spec.get("branches", []):
+			var line := RouteLine.new()
+			line.id = cfg["id"]
+			line.display_name = str(cfg.get("name", String(line.id)))
+			line.main_name = str(spec.get("main_route_name", ""))
+			line.kind = cfg.get("kind", &"surface")
+			line.fork = lerpf(float(st["a"]), float(st["b"]), float(cfg["from"]))
+			line.merge = lerpf(float(st["a"]), float(st["b"]), float(cfg["to"]))
+			line.side = float(cfg.get("side", 1.0))
+			line.half_width = float(cfg.get("half_width", 8.0))
+			line.depth = float(cfg.get("depth", 0.0))
+			line.buildings = int(cfg.get("buildings", 0))
+			if line.kind == &"tunnel":
+				line.covered = Vector2(0.17, 0.83)
+			var swing: float = float(cfg.get("offset", 60.0))
+			var wiggle: float = float(cfg.get("wiggle", 0.0))
+			var waves: float = float(cfg.get("waves", 1.5))
+			var f0 := frame_at(line.fork)
+			var f1 := frame_at(line.merge)
+			var chord: Vector3 = f1.pos - f0.pos
+			chord.y = 0.0
+			var clen := chord.length()
+			var cdir := chord / maxf(clen, 0.001)
+			var cperp := cdir.cross(Vector3.UP).normalized()
+			# Dense waypoints so the height can track the main road's hills exactly over the
+			# junctions at each end, where the two pavements overlap.
+			var m := 20
+			var pts: Array[Vector3] = [f0.pos]
+			for k in range(1, m):
+				var u := float(k) / float(m)
+				var bell := smoothstep(0.0, 0.36, u) * (1.0 - smoothstep(0.64, 1.0, u))
+				var lat := line.side * (swing * bell + wiggle * sin(u * TAU * waves) * bell)
+				var dip := line.depth * smoothstep(0.14, 0.36, u) * (1.0 - smoothstep(0.64, 0.86, u))
+				var p: Vector3 = f0.pos + cdir * (clen * u) + cperp * lat
+				var main_y: float = frame_at(lerpf(line.fork, line.merge, u)).pos.y
+				var free_y := lerpf(f0.pos.y, f1.pos.y, u)
+				var follow := smoothstep(0.12, 0.40, u) * (1.0 - smoothstep(0.60, 0.88, u))
+				p.y = lerpf(main_y, free_y, follow) - dip
+				pts.append(p)
+			pts.append(f1.pos)
+			line.curve.bake_interval = 1.5
+			line.curve.up_vector_enabled = false
+			var n_pts := pts.size()
+			for i in n_pts:
+				var prev: Vector3 = pts[maxi(i - 1, 0)]
+				var next: Vector3 = pts[mini(i + 1, n_pts - 1)]
+				var tangent := (next - prev) * 0.25
+				if i == 0:
+					tangent = f0.tangent * (clen / float(m)) * 0.35
+				elif i == n_pts - 1:
+					tangent = f1.tangent * (clen / float(m)) * 0.35
+				line.curve.add_point(pts[i], -tangent, tangent)
+			line.length = line.curve.get_baked_length()
+			var s := 0.0
+			while s < line.length:
+				line.frames.append(_curve_frame(line.curve, s, line.length))
+				s += SAMPLE_STEP
+			line.frames.append(_curve_frame(line.curve, line.length, line.length))
+			_branches.append(line)
+
+
+## Road, walls, skirts and (for a tunnel) a roof for every alternative route, plus the
+## signage at the fork. Where a branch still overlaps the main road at each end its
+## pavement is clipped to the outside of the main road, forming the slip road, and the
+## main road's wall is left out where the pavement crosses it.
+func _build_branches() -> void:
+	var asphalt := Surfaces.get_type(&"asphalt")
+	var forks_signed: Array[float] = []
+	for line in _branches:
+		var hw := line.half_width
+		var n := line.frames.size()
+		var corners: Array = []          # per frame: [left, right] or [] while still inside the main road
+		var inner_free: Array[bool] = []  # per frame: inner edge clear of the main road's wall
+		var gap_lo := [INF, -INF]
+		var gap_hi := [INF, -INF]
+		for i in n:
+			var f: Dictionary = line.frames[i]
+			var s: float = f["offset"]
+			var left: Vector3 = f.pos - f.right * hw + Vector3.UP * BRANCH_LIFT
+			var right: Vector3 = f.pos + f.right * hw + Vector3.UP * BRANCH_LIFT
+			var inner_is_left := line.side > 0.0
+			var inner: Vector3 = left if inner_is_left else right
+			var outer: Vector3 = right if inner_is_left else left
+			var free := true
+			if s < 170.0 or s > line.length - 170.0:
+				var o := _offset_near_curve(curve, length, inner, line.map_to_main(s), 40.0)
+				var mf := frame_at(o)
+				var main_hw := _main_width_at(o)
+				var lat_in: float = (inner - mf.pos).dot(mf.right) * line.side
+				var lat_out: float = (outer - mf.pos).dot(mf.right) * line.side
+				if lat_out < main_hw + 0.4:
+					corners.append([])
+					inner_free.append(false)
+					continue
+				if lat_in < main_hw + 0.4:
+					inner = mf.pos + mf.right * (line.side * (main_hw + 0.4)) + Vector3.UP * (bump_at(o) + BRANCH_LIFT)
+					lat_in = main_hw + 0.4
+				# Over the main road's footprint the branch pavement rides on top of it, never under.
+				var floor_y: float = mf.pos.y + bump_at(o) + BRANCH_LIFT
+				if lat_in < main_hw + SHOULDER_WIDTH + 0.5:
+					inner.y = maxf(inner.y, floor_y)
+				if lat_out < main_hw + SHOULDER_WIDTH + 0.5:
+					outer.y = maxf(outer.y, floor_y)
+				var wall_lat := main_hw + SHOULDER_WIDTH
+				if lat_out > wall_lat - 0.3 and lat_in < wall_lat + 0.8:
+					var g: Array = gap_lo if s < line.length * 0.5 else gap_hi
+					g[0] = minf(float(g[0]), o)
+					g[1] = maxf(float(g[1]), o)
+				free = lat_in > wall_lat + 1.0
+			if inner_is_left:
+				left = inner
+			else:
+				right = inner
+			corners.append([left, right])
+			inner_free.append(free)
+		for g in [gap_lo, gap_hi]:
+			if float(g[0]) < float(g[1]):
+				_wall_gaps.append([float(g[0]) - 4.0, float(g[1]) + 4.0, line.side])
+
+		var tunnel := line.kind == &"tunnel"
+		var road := SurfaceTool.new()
+		road.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var walls := SurfaceTool.new()
+		walls.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var roof := SurfaceTool.new()
+		roof.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var skirt := SurfaceTool.new()
+		skirt.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var any_roof := false
+		for i in range(n - 1):
+			var qa: Array = corners[i]
+			var qb: Array = corners[i + 1]
+			if qa.is_empty() or qb.is_empty():
+				continue
+			var up: Vector3 = line.frames[i]["up"]
+			_quad(road, qa[0], qb[0], qb[1], qa[1], up)
+			var u: float = float(line.frames[i]["offset"]) / maxf(line.length, 0.001)
+			var covered := tunnel and u >= line.covered.x and u <= line.covered.y
+			var h := TUNNEL_HEIGHT if covered else WALL_HEIGHT
+			var lift := Vector3.UP * h
+			var inner_side := 0 if line.side > 0.0 else 1
+			for side_i in [0, 1]:
+				if side_i == inner_side and not (inner_free[i] and inner_free[i + 1]):
+					continue
+				if side_i == 0:
+					_quad(walls, qa[0] + lift, qb[0] + lift, qb[0], qa[0], up)
+				else:
+					_quad(walls, qa[1], qb[1], qb[1] + lift, qa[1] + lift, up)
+			for side_i in [0, 1]:
+				var ta: Vector3 = qa[side_i]
+				var tb: Vector3 = qb[side_i]
+				var ga := Vector3(ta.x, _ground_y, ta.z)
+				var gb := Vector3(tb.x, _ground_y, tb.z)
+				if side_i == 0:
+					_quad(skirt, ga, gb, tb, ta, up)
+				else:
+					_quad(skirt, ta, tb, gb, ga, up)
+			if covered:
+				any_roof = true
+				_quad(roof, qa[0] + lift, qb[1] + lift, qb[0] + lift, qa[1] + lift, -up)   # seen from below
+				_quad(roof, qa[0] + lift, qb[0] + lift, qb[1] + lift, qa[1] + lift, up)    # and from above
+		var road_color := asphalt.color.darkened(0.25) if tunnel else asphalt.color.lightened(0.03)
+		_make_body(road.commit(), road_color, asphalt.id, "Branch_%s_Road" % line.id)
+		var wall_color := Color(0.30, 0.31, 0.34) if tunnel else Color(0.85, 0.16, 0.14)
+		_make_body(walls.commit(), wall_color, &"asphalt", "Branch_%s_Walls" % line.id, 2.0, 0.5)
+		if any_roof:
+			_make_body(roof.commit(), Color(0.22, 0.22, 0.25), &"asphalt", "Branch_%s_Roof" % line.id, 2.0, 0.4)
+		var skirt_mi := MeshInstance3D.new()
+		skirt_mi.mesh = skirt.commit()
+		skirt_mi.material_override = ToonMaterial.make(Color(0.36, 0.30, 0.24), 2.0, 0.5, 0.0)
+		add_child(skirt_mi)
+		if tunnel:
+			_build_tunnel_portals(line)
+		if line.buildings > 0:
+			_build_branch_buildings(line)
+		if not forks_signed.has(line.fork):
+			forks_signed.append(line.fork)
+			_build_fork_sign(line)
+
+
+static func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3) -> void:
+	for v in [a, b, c, a, c, d]:
+		st.set_normal(normal)
+		st.add_vertex(v)
+
+
+## Dark lintels over each end of the covered stretch, with the route's name on the way in.
+func _build_tunnel_portals(line: RouteLine) -> void:
+	for u in [line.covered.x, line.covered.y]:
+		var s: float = float(u) * line.length
+		var f := _curve_frame(line.curve, s, line.length)
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(line.half_width * 2.0 + 3.0, 1.8, 1.4)
+		var shape := BoxShape3D.new()
+		shape.size = mesh.size
+		var p: Vector3 = f.pos + Vector3.UP * (TUNNEL_HEIGHT + 0.9)
+		_make_obstacle(mesh, shape, Transform3D(Basis.looking_at(f.tangent, Vector3.UP), p),
+				Color(0.18, 0.18, 0.21), "Portal_%s_%.0f" % [line.id, s])
+	var fe := _curve_frame(line.curve, line.covered.x * line.length, line.length)
+	_add_sign_text(line.display_name.to_upper(), fe.pos + Vector3.UP * (TUNNEL_HEIGHT + 0.9) - fe.tangent * 0.8, fe.tangent, 56)
+
+
+## A handful of blocks along an above-ground branch, kept off both roads.
+func _build_branch_buildings(line: RouteLine) -> void:
+	var palette := [Color(0.80, 0.70, 0.60), Color(0.68, 0.60, 0.54), Color(0.84, 0.80, 0.70),
+			Color(0.58, 0.55, 0.56)]
+	for i in line.buildings:
+		var s: float = _rng.randf_range(160.0, line.length - 160.0)
+		var f := _curve_frame(line.curve, s, line.length)
+		var side: float = -1.0 if _rng.randf() < 0.5 else 1.0
+		var depth: float = _rng.randf_range(4.0, 12.0)
+		var w: float = _rng.randf_range(6.0, 12.0)
+		var d: float = _rng.randf_range(6.0, 12.0)
+		var h: float = _rng.randf_range(5.0, 14.0)
+		var lat: float = side * (line.half_width + 2.4 + depth * 0.5)
+		var p: Vector3 = f.pos + f.right * lat + Vector3.UP * (h * 0.5 - 1.0)
+		var o := offset_of(to_global(p))
+		var mf := frame_at(o)
+		var from_main := absf((p - mf.pos).dot(mf.right))
+		if from_main < _main_width_at(o) + SHOULDER_WIDTH + maxf(w, d) * 0.5 + 2.0:
+			continue
+		if _in_branch_footprint(p, line, maxf(w, d) * 0.5):
+			continue
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(w, h, d)
+		var shape := BoxShape3D.new()
+		shape.size = mesh.size
+		var basis := Basis.looking_at(f.tangent, Vector3.UP).rotated(Vector3.UP, _rng.randf_range(-0.2, 0.2))
+		_make_obstacle(mesh, shape, Transform3D(basis, p), palette[i % palette.size()], "Branch_%s_Building%d" % [line.id, i])
+
+
+## A gantry across the road before a fork naming what lies each way.
+func _build_fork_sign(any_branch: RouteLine) -> void:
+	var o: float = any_branch.fork - 105.0
+	var f := frame_at(o)
+	var hw := _main_width_at(o) + SHOULDER_WIDTH
+	var bar_y := 7.2
+	for side in [-1.0, 1.0]:
+		var post := BoxMesh.new()
+		post.size = Vector3(0.5, bar_y, 0.5)
+		var pshape := BoxShape3D.new()
+		pshape.size = post.size
+		var p: Vector3 = f.pos + f.right * (side * (hw + 0.6)) + Vector3.UP * (bar_y * 0.5 + bump_at(o))
+		_make_obstacle(post, pshape, Transform3D(Basis.looking_at(f.tangent, Vector3.UP), p),
+				Color(0.20, 0.21, 0.24), "ForkPost%d" % int(side))
+	var bar := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(hw * 2.0 + 1.7, 1.9, 0.5)
+	bar.mesh = bm
+	bar.material_override = ToonMaterial.make(Color(0.12, 0.13, 0.16), 2.0, 0.5, 0.0)
+	bar.transform = Transform3D(Basis.looking_at(f.tangent, Vector3.UP), f.pos + Vector3.UP * (bar_y + 0.9 + bump_at(o)))
+	add_child(bar)
+	var left := ""
+	var right := ""
+	for br in _branches:
+		if absf(br.fork - any_branch.fork) < 1.0:
+			if br.side < 0.0:
+				left = "<  " + br.display_name.to_upper()
+			else:
+				right = br.display_name.to_upper() + "  >"
+	var centre := any_branch.main_name.to_upper() if any_branch.main_name != "" else "STRAIGHT ON"
+	var texts := [[left, -hw * 0.62], [centre, 0.0], [right, hw * 0.62]]
+	for tx in texts:
+		if String(tx[0]) == "":
+			continue
+		_add_sign_text(String(tx[0]), f.pos + f.right * float(tx[1]) + Vector3.UP * (bar_y + 0.9 + bump_at(o)) - f.tangent * 0.3, f.tangent, 48)
+
+
+func _add_sign_text(text: String, pos: Vector3, tangent: Vector3, size: int) -> void:
+	var lb := Label3D.new()
+	lb.text = text
+	lb.font_size = size
+	lb.pixel_size = 0.03
+	lb.outline_size = 14
+	lb.modulate = Color(1.0, 0.96, 0.80)
+	lb.outline_modulate = Color(0.05, 0.05, 0.07)
+	lb.alpha_cut = Label3D.ALPHA_CUT_DISCARD
+	lb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lb.transform = Transform3D(Basis.looking_at(tangent, Vector3.UP), pos)
+	add_child(lb)
+
+
 func _build_debris(a: float, b: float, cfg: Dictionary) -> void:
 	var mat := ToonMaterial.make(Color(0.93, 0.55, 0.15), 3.0, 0.5, 0.1)
 	var mesh := BoxMesh.new()

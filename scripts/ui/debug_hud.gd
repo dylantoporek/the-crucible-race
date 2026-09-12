@@ -13,6 +13,7 @@ var _progress_bar: ProgressBar
 var _countdown_label: Label
 var _health_bar: ProgressBar
 var _gadget_label: Label
+var _route_label: Label
 var _gadget_bar: ProgressBar
 var _telemetry: Label
 var _controls: Label
@@ -110,12 +111,22 @@ func _build() -> void:
 	_countdown_label.add_theme_constant_override("outline_size", 14)
 	add_child(_countdown_label)
 
+	# Top centre: heads-up for a route split.
+	_route_label = _label("", font_mid, HORIZONTAL_ALIGNMENT_CENTER)
+	_route_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_route_label.offset_left = -420
+	_route_label.offset_right = 420
+	_route_label.offset_top = 22
+	_route_label.offset_bottom = 60
+	_route_label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.55))
+	add_child(_route_label)
+
 	# Bottom-left: controls.
 	_controls = _label(
 		"W/S or triggers  throttle / brake (brake when stopped = reverse)\n" +
 		"A/D or left stick  steer      Space or X  handbrake\n" +
 		"Shift / E or A  use gadget      Q / Tab  change gadget after a pit stop\n" +
-		"R  reset to track      1-6  restart at stage      F1  toggle HUD",
+		"R  reset to track      1-7  restart at stage      F1  toggle HUD",
 		font_small, HORIZONTAL_ALIGNMENT_LEFT)
 	_controls.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	_controls.offset_left = 24
@@ -199,6 +210,12 @@ func _process(_delta: float) -> void:
 		var gfill := StyleBoxFlat.new()
 		gfill.bg_color = gcol if slot.cooldown <= 0.0 else gcol.darkened(0.35)
 		_gadget_bar.add_theme_stylebox_override("fill", gfill)
+
+	var route: SprintTrack.RouteLine = game.track.route_of(player)
+	if route != null:
+		_route_label.text = route.display_name.to_upper()
+	else:
+		_route_label.text = game.track.fork_hint(game.track.track_offset(player))
 
 	var cue: String = game.countdown_text()
 	_countdown_label.text = cue
