@@ -24,6 +24,15 @@ var times := {}
 
 
 func _ready() -> void:
+	# Opponent lane wobble and spawn tuning come from the global RNG, so an unseeded run
+	# drives a different line every time and the timings wander. Pin it, and let a sweep
+	# override it, so a failure here always means the course changed rather than the dice.
+	var arg := ""
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("seed="):
+			arg = a.trim_prefix("seed=")
+	seed(int(arg) if arg != "" else 20260912)
+
 	var scene: PackedScene = load(MAIN)
 	game = scene.instantiate()
 	add_child(game)

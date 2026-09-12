@@ -1358,9 +1358,14 @@ func _build_fallen_columns(a: float, b: float, cfg: Dictionary) -> void:
 func _build_repair_station(a: float, b: float, cfg: Dictionary) -> void:
 	var o: float = lerpf(a, b, float(cfg["at"]))
 	var side: float = float(cfg["side"])
-	var lat: float = side * (width_at(o) - RepairStation.PAD_WIDTH * 0.5 - 0.6)
+	# On a narrow road a full-width pad would cover the racing line, so everyone would be
+	# repaired just by driving past. Pull it in until it is a genuine detour to the kerb.
+	var hw := width_at(o)
+	var pad_w: float = minf(RepairStation.PAD_WIDTH, hw * 0.55)
+	var lat: float = side * (hw - pad_w * 0.5 - 0.6)
 	var f := frame_at(o)
 	var station := RepairStation.new()
+	station.pad_width = pad_w
 	station.transform = Transform3D(Basis.looking_at(f.tangent, Vector3.UP), surface_point(o, lat) + Vector3.UP * 0.02)
 	add_child(station)
 	_repair_stations.append([o, lat])
@@ -1618,14 +1623,18 @@ func _open_wall_for(line: RouteLine) -> void:
 	_wall_gaps.append([in_o - 6.0, line.merge + 4.0, line.side])
 
 
-## The main-road offset beside a point on a route, once that route's inner edge has cleared
-## the barrier there; 0 while it is still crossing.
+## The main-road offset beside a point on a route, once that route's inner edge has pulled
+## well clear of the barrier there; 0 while it is still crossing. The clearance is generous
+## on purpose: close the barrier the moment the route technically clears it and its cut end
+## stands as a nose in the path of anyone still crossing the junction.
+const WALL_REJOIN_CLEARANCE := 6.0
+
 func _clear_of_wall(line: RouteLine, s: float) -> float:
 	var f := _curve_frame(line.curve, s, line.length)
 	var o := offset_of(to_global(f.pos))
 	var mf := frame_at(o)
 	var inner: float = (f.pos - mf.pos).dot(mf.right) * line.side - line.half_width
-	return o if inner > _main_width_at(o) + SHOULDER_WIDTH + 2.0 else 0.0
+	return o if inner > _main_width_at(o) + SHOULDER_WIDTH + WALL_REJOIN_CLEARANCE else 0.0
 
 
 static func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3) -> void:

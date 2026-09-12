@@ -55,13 +55,22 @@ const GROUND_MASK := 0b101  # world + props
 
 @export_group("Damage")
 @export var max_health := 100.0
-@export var damage_soft_threshold := 1200.0 ## Sideways impulse (N*s) below which a hit is free
-@export var damage_per_impulse := 1.0 / 190.0 ## Health lost per N*s above the threshold
-@export var max_damage_per_hit := 45.0
-@export var static_damage_scale := 0.5      ## Walls and rocks hurt half as much as cars
-@export var power_loss_when_wrecked := 0.5  ## Fraction of engine force lost at zero health
-@export var speed_loss_when_wrecked := 0.25
-@export var pull_when_wrecked := 0.14       ## Steering bias toward the damaged side at zero health
+@export var damage_soft_threshold := 1800.0 ## Sideways impulse (N*s) below which a hit is free
+@export var damage_per_impulse := 1.0 / 430.0 ## Health lost per N*s above the threshold
+@export var max_damage_per_hit := 18.0
+@export var static_damage_scale := 0.4      ## Walls and rocks hurt less than cars
+## How hard you were travelling matters as much as how hard you were hit: a hit at
+## `damage_speed_ref` does its rated damage, a crawl does `damage_speed_floor` of it, and a
+## flat-out shunt up to `damage_speed_ceiling` times as much.
+@export var damage_speed_ref := 28.0
+@export var damage_speed_floor := 0.35
+@export var damage_speed_ceiling := 1.5
+## Health above this fraction drives exactly like a fresh car. Dents are cosmetic until you
+## are genuinely in trouble; below it, the losses below ramp in to their full value at zero.
+@export_range(0.0, 1.0) var damage_grace := 0.5
+@export var power_loss_when_wrecked := 0.28 ## Fraction of engine force lost at zero health
+@export var speed_loss_when_wrecked := 0.12
+@export var pull_when_wrecked := 0.07       ## Steering bias toward the damaged side at zero health
 
 var paint_color := Color(0.9, 0.2, 0.15)
 
@@ -167,7 +176,7 @@ func _physics_process(delta: float) -> void:
 func _update_steering(delta: float, speed_abs: float) -> void:
 	var wanted := input_steer
 	if speed_abs > 3.0:
-		wanted += pull_sign * pull_when_wrecked * damage_fraction()
+		wanted += pull_sign * pull_when_wrecked * handling_penalty()
 	var rate := steer_speed if absf(wanted) > absf(steer) else steer_return_speed
 	steer = move_toward(steer, clampf(wanted, -1.0, 1.0), rate * delta)
 	var authority := lerpf(1.0, high_speed_steer_scale, clampf(speed_abs / top_speed, 0.0, 1.0))
@@ -186,11 +195,11 @@ func _update_reverse_state() -> void:
 
 ## Top speed after damage and any boost.
 func effective_top_speed() -> float:
-	return top_speed * speed_multiplier * (1.0 - speed_loss_when_wrecked * damage_fraction())
+	return top_speed * speed_multiplier * (1.0 - speed_loss_when_wrecked * handling_penalty())
 
 
 func _engine_force(speed_abs: float) -> float:
-	var force := max_engine_force * engine_multiplier * (1.0 - power_loss_when_wrecked * damage_fraction())
+	var force := max_engine_force * engine_multiplier * (1.0 - power_loss_when_wrecked * handling_penalty())
 	var top := effective_top_speed()
 	if reversing:
 		var rev_taper := 1.0 - clampf(speed_abs / (top * 0.3), 0.0, 1.0)
@@ -222,7 +231,7 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 	var normal: Vector3 = hit.normal
 	var surface := Surfaces.for_collider(hit.collider)
 	var dist := origin.distance_to(hit_pos)
-	var bump := surface.bumpiness + 0.02 * damage_fraction()
+	var bump := surface.bumpiness + 0.02 * handling_penalty()
 	if bump > 0.0:
 		dist += randf_range(-bump, bump) * clampf(speed_abs / 8.0, 0.0, 1.0)
 
@@ -415,11 +424,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			if is_car:
 				call_deferred("_shield_throw", other)
 		else:
-			var dmg := clampf((strongest - damage_soft_threshold) * damage_per_impulse, 0.0, max_damage_per_hit)
-			if not is_car:
-				dmg *= static_damage_scale
-			if dmg > 0.0:
-				take_damage(dmg, side)
+			take_damage(impact_damage(strongest, absf(speed), is_car), side)
 
 
 ## A shielded car throws whoever runs into it, and hurts them doing it.
@@ -433,13 +438,33 @@ func _shield_throw(other: RaycastCar) -> void:
 	away = away.normalized() + Vector3.UP * 0.35
 	other.apply_central_impulse(away.normalized() * other.mass * 7.5)
 	other.apply_torque_impulse(Vector3.UP * other.mass * randf_range(-3.0, 3.0))
-	other.take_damage(12.0, -sign(other.to_local(global_position).x))
+	other.take_damage(8.0, -sign(other.to_local(global_position).x))
 
 
 # ---------------------------------------------------------------- damage
 
+## How beaten up the car looks: 0 fresh, 1 at zero health.
 func damage_fraction() -> float:
 	return 1.0 - clampf(health / max_health, 0.0, 1.0)
+
+
+## How beaten up the car drives: 0 anywhere above the grace band, ramping to 1 at zero
+## health. Kept apart from damage_fraction() so a car can carry visible dents and still
+## handle properly.
+func handling_penalty() -> float:
+	var left := clampf(health / max_health, 0.0, 1.0)
+	return clampf((damage_grace - left) / maxf(damage_grace, 0.001), 0.0, 1.0)
+
+
+## Health lost from one impact: how hard it caught us across the car, scaled by how fast we
+## were going, and softened for walls and scenery.
+func impact_damage(across_impulse: float, speed_abs: float, from_car: bool) -> float:
+	var raw := (across_impulse - damage_soft_threshold) * damage_per_impulse
+	if raw <= 0.0:
+		return 0.0
+	var speed_scale := clampf(speed_abs / damage_speed_ref, damage_speed_floor, damage_speed_ceiling)
+	var dmg := clampf(raw * speed_scale, 0.0, max_damage_per_hit)
+	return dmg if from_car else dmg * static_damage_scale
 
 
 func is_wrecked() -> bool:
@@ -472,7 +497,7 @@ func _update_damage_visuals() -> void:
 	var d := damage_fraction()
 	if _paint_mat != null:
 		_paint_mat.set_shader_parameter("albedo", paint_color.lerp(Color(0.22, 0.21, 0.20), d * 0.85))
-	$Visual.rotation.z = deg_to_rad(4.0) * d * pull_sign
+	$Visual.rotation.z = deg_to_rad(4.0) * handling_penalty() * pull_sign
 	var smoke := $Smoke as CPUParticles3D
 	smoke.emitting = d > 0.5
 	smoke.amount = 18 if d < 0.8 else 34

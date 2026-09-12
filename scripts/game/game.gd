@@ -133,7 +133,7 @@ func _spawn_car(index: int, is_player: bool) -> RaycastCar:
 		# Every other grid slot is a bruiser; the rest would rather win than trade paint.
 		if index % 2 == 0:
 			ai.style = AIDriver.BRUISER
-			ai.aggression = randf_range(0.55, 0.9)
+			ai.aggression = randf_range(0.28, 0.52)
 			ai.skill = randf_range(0.86, 0.98)
 			ai.preferred_gadget = [&"shield", &"oil"][randi() % 2]
 			_add_bull_bar(car)

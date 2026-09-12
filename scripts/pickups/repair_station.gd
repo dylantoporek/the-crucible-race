@@ -9,6 +9,10 @@ const GREEN := Color(0.30, 0.95, 0.45)
 const PAD_LENGTH := 16.0
 const PAD_WIDTH := 6.5
 
+## Narrowed on a tight road so the pad never swallows the racing line. Set before the node
+## enters the tree; the geometry is built from it.
+var pad_width := PAD_WIDTH
+
 var _icon: Node3D
 var _phase := 0.0
 
@@ -22,14 +26,14 @@ func _ready() -> void:
 
 	var trigger := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(PAD_WIDTH, 3.0, PAD_LENGTH)
+	box.size = Vector3(pad_width, 3.0, PAD_LENGTH)
 	trigger.shape = box
 	trigger.position = Vector3(0.0, 1.5, 0.0)
 	add_child(trigger)
 
 	var pad := MeshInstance3D.new()
 	var pm := BoxMesh.new()
-	pm.size = Vector3(PAD_WIDTH, 0.08, PAD_LENGTH)
+	pm.size = Vector3(pad_width, 0.08, PAD_LENGTH)
 	pad.mesh = pm
 	pad.material_override = _mat(GREEN, 0.55)
 	pad.position = Vector3(0.0, 0.05, 0.0)
@@ -37,7 +41,7 @@ func _ready() -> void:
 
 	var edge := MeshInstance3D.new()
 	var em := BoxMesh.new()
-	em.size = Vector3(PAD_WIDTH + 0.6, 0.04, PAD_LENGTH + 0.6)
+	em.size = Vector3(pad_width + 0.6, 0.04, PAD_LENGTH + 0.6)
 	edge.mesh = em
 	edge.material_override = _mat(Color(0.9, 1.0, 0.9), 0.9)
 	edge.position = Vector3(0.0, 0.03, 0.0)
@@ -49,14 +53,14 @@ func _ready() -> void:
 		post_mesh.size = Vector3(0.35, 5.0, 0.35)
 		post.mesh = post_mesh
 		post.material_override = _mat(GREEN, 1.0)
-		post.position = Vector3(PAD_WIDTH * 0.5 + 0.4, 2.5, z)
+		post.position = Vector3(pad_width * 0.5 + 0.4, 2.5, z)
 		add_child(post)
 	var bar := MeshInstance3D.new()
 	var bar_mesh := BoxMesh.new()
 	bar_mesh.size = Vector3(0.3, 0.3, PAD_LENGTH + 0.4)
 	bar.mesh = bar_mesh
 	bar.material_override = _mat(GREEN, 1.0)
-	bar.position = Vector3(PAD_WIDTH * 0.5 + 0.4, 5.0, 0.0)
+	bar.position = Vector3(pad_width * 0.5 + 0.4, 5.0, 0.0)
 	add_child(bar)
 
 	# A slowly turning plus sign above the pad.

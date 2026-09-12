@@ -12,8 +12,11 @@ permissions:
   pages: write
   id-token: write
 
+# One build per branch, superseding itself; two pushes to different branches, or two
+# pushes moments apart, must not cancel each other's checks. Only the Pages deploy needs
+# the single shared slot, and it is left to finish rather than be interrupted mid-upload.
 concurrency:
-  group: pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -87,6 +90,9 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

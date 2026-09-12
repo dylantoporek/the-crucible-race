@@ -115,13 +115,21 @@ back to the full scan on a cache miss or when a body is reset or teleported.
 ## Damage, repairs and gadgets
 
 - **Damage.** Every car has 100 health. Sideways and head-on impacts take it away —
-  landing a jump does not — with hits from other cars costing twice what walls and rocks
-  do. Damage cuts engine power (up to half) and top speed (up to a quarter), makes the car
-  pull toward the side it was hit on, darkens the paint and adds smoke past 50%. At zero
-  the car is crippled but still drives.
-- **Repair stations / pits.** Green pads at the side of the road at the Waypoint Village
-  pit, the entrance to Foothill City and the summit. Drive onto one for a full repair; it
-  costs you the racing line. AI below 45% health will divert to the next one. A pit stop
+  landing a jump does not — and what a hit costs depends on how fast you were going as
+  well as how hard it landed: the same shunt at 34 m/s costs about three times what it
+  does at 9 m/s, and no single hit costs more than 18. Walls and scenery cost 40% of what
+  a car does.
+- **Damage you can feel, not fight.** Anything above 50% health drives exactly like a
+  fresh car; the paint darkens but nothing else changes. Below that the losses ramp in to
+  their full value at zero: 28% of engine power, 12% of top speed, and a mild pull toward
+  the side you were hit on. Smoke starts past 50%. Even a wrecked car keeps most of its
+  pace, so a bad race is a handicap rather than a retirement. The whole model is the
+  Damage group in `scripts/car/raycast_car.gd`; `damage_grace` is the "nothing happens
+  above this" line, and `handling_penalty()` is what the physics reads.
+- **Repair stations / pits.** One green pad per stage, seven in all, so no stretch of the
+  course leaves you nursing a broken car for long. Drive onto one for a full repair; it
+  costs you the racing line, and on a narrow road the pad is pulled in to the kerb so
+  passing traffic is not healed by accident. AI below 45% health will divert to the next one. A pit stop
   also opens a 6 s window in which you can pick any gadget with Q / Tab (LB / RB); a car
   that arrives without one is handed one. Swapping keeps whatever cooldown you had.
 - **Gadgets.** A row of three glowing boxes sits across the road about every 480 m. The
@@ -130,7 +138,7 @@ back to the full scan on a cache miss or when a body is reset or teleported.
   race restarts. A gadget is kept for the whole race and can be used again after a 20 s
   cooldown. Shift, E or the A button fires it.
 - **Two kinds of opponent.** Every other grid slot is a **bruiser** (black bar across the
-  nose): it leans on you whenever it is alongside and pits for a shield or oil. The rest
+  nose): it leans on you when it is alongside and pits for a shield or oil. The rest
   are **racers**: they give everyone room, chase the win, and pit for boost or jump.
   Set in `_spawn_car` in `scripts/game/game.gd`.
 

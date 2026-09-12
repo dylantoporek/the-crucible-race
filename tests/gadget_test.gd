@@ -37,7 +37,7 @@ func _ready() -> void:
 		if c is RepairStation: stations += 1
 	_check(boxes >= 36 and boxes <= 72 and boxes % PickupBox.ROW_COUNT == 0,
 			"a row of %d gadget boxes roughly every %.0f m (%d boxes)" % [PickupBox.ROW_COUNT, RouteSpec.PICKUP_SPACING, boxes])
-	_check(stations == 3, "three repair stations (%d)" % stations)
+	_check(stations == RouteSpec.STAGES.size(), "a repair station on every stage (%d of %d)" % [stations, RouteSpec.STAGES.size()])
 	var bruisers := 0
 	var racers := 0
 	for car in game.cars:
@@ -61,19 +61,38 @@ func _physics_process(delta: float) -> void:
 	t += delta
 	match step:
 		0:
-			# Damage: power drops, steering pulls, then repair restores.
-			_force_before = player._engine_force(10.0) if player.input_throttle > 0.0 else 0.0
+			# How much a hit costs: harder and faster hurts more, and walls hurt less than cars.
+			var fast: float = player.impact_damage(9000.0, 34.0, true)
+			var slow: float = player.impact_damage(9000.0, 9.0, true)
+			var light: float = player.impact_damage(3200.0, 34.0, true)
+			var wall: float = player.impact_damage(9000.0, 34.0, false)
+			_check(fast > slow * 1.8, "the same shunt costs far more at speed (%.1f vs %.1f)" % [fast, slow])
+			_check(light < fast, "a glancing hit costs less than a heavy one (%.1f vs %.1f)" % [light, fast])
+			_check(wall < fast, "a wall costs less than a car (%.1f vs %.1f)" % [wall, fast])
+			_check(fast <= player.max_damage_per_hit, "no single hit costs more than %.0f health (%.1f)" % [player.max_damage_per_hit, fast])
+			_check(player.impact_damage(1500.0, 34.0, true) == 0.0, "a light knock is free")
+
+			# Dents are cosmetic until the car is genuinely in trouble.
 			player.input_throttle = 1.0
 			_force_before = player._engine_force(10.0)
 			player.take_damage(40.0, 1.0)
 			_check(is_equal_approx(player.health, 60.0), "40 damage leaves 60 health (%.0f)" % player.health)
+			_check(is_equal_approx(player._engine_force(10.0), _force_before),
+					"at 60 health the car still makes full power")
+			_check(is_equal_approx(player.effective_top_speed(), player.top_speed),
+					"at 60 health top speed is untouched")
+			_check(player.damage_fraction() > 0.0 and player.handling_penalty() == 0.0,
+					"the car looks dented but drives clean")
+			player.take_damage(35.0, 1.0)
 			var after: float = player._engine_force(10.0)
-			_check(after < _force_before * 0.85, "damage cuts engine force (%.0f -> %.0f N)" % [_force_before, after])
-			_check(player.effective_top_speed() < player.top_speed, "damage cuts top speed")
+			_check(after < _force_before, "below half health power starts to go (%.0f -> %.0f N)" % [_force_before, after])
+			_check(after > _force_before * 0.8, "...but only gently at 25 health (%.0f%%)" % [after / _force_before * 100.0])
 			_check(player.pull_sign > 0.0, "car pulls toward the side that was hit")
 			player.take_damage(80.0, -1.0)
 			_check(player.is_wrecked(), "health floors at zero and the car is wrecked")
-			_check(player._engine_force(10.0) > 0.0, "a wrecked car can still move")
+			_check(player._engine_force(10.0) > _force_before * 0.6,
+					"even wrecked, the car keeps most of its power (%.0f%%)" % [player._engine_force(10.0) / _force_before * 100.0])
+			_check(player.effective_top_speed() > player.top_speed * 0.85, "and most of its top speed")
 			player.repair()
 			_check(is_equal_approx(player.health, 100.0), "repair restores full health")
 			player.input_throttle = 0.0
