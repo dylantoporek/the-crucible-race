@@ -183,7 +183,7 @@ func _physics_process(delta: float) -> void:
 		_offtrack_time = 0.0
 	if _offtrack_time > 3.0 or _stuck_time > 7.0 or _stall_time > 9.0:
 		# Drop back on the road a little further up the course, clear of whatever caught us.
-		car.reset_to(track.snap_to_track(pos, 12.0))
+		car.respawn_at(track.recovery_transform(pos, 12.0))
 		track.invalidate_cursor(car)
 		reset_state()
 		resets += 1
