@@ -47,6 +47,7 @@ const STAGES: Array[Dictionary] = [
 		"turn": -46.0, "min_radius": 95.0, "bend_len": 300.0,
 		"climb": 22.0, "max_grade": 0.10, "hills_wave": 420.0,
 		"features": {
+			"repair": {"at": 0.62, "side": -1.0},
 			"moguls": {"from": 0.46, "to": 0.80, "amp": 0.80, "wave": 27.0},
 			"debris": {"count": 16},
 		},
@@ -93,6 +94,7 @@ const STAGES: Array[Dictionary] = [
 			# A few free-standing columns between the halls. A wandering gap keeps a line.
 			"pillars": {"from": 0.08, "to": 0.94, "spacing": 80.0, "per_cluster": 2,
 						"gate_width": 10.0, "radius": 1.6, "height": 9.0},
+			"repair": {"at": 0.46, "side": 1.0},
 			# Toppled columns lying across the sand near the edges.
 			"fallen_columns": {"count": 10},
 			"debris": {"count": 14},
@@ -120,6 +122,7 @@ const STAGES: Array[Dictionary] = [
 		"climb": 150.0, "max_grade": 0.20, "hills_wave": 300.0,
 		"features": {
 			# Ice as scattered patches inside the snow, not a section of its own.
+			"repair": {"at": 0.52, "side": -1.0},
 			"ice_patches": {"from": 0.26, "to": 0.88, "count": 18, "min_len": 12.0, "max_len": 30.0},
 			"rocks": {"from": 0.12, "to": 0.94, "count": 26},
 		},
@@ -149,6 +152,7 @@ const STAGES: Array[Dictionary] = [
 		"jogs": {"from": 0.12, "to": 0.76, "count": 5, "angle": 80.0, "radius": 36.0, "gap": 22.0},
 		"climb": -46.0, "max_grade": 0.10, "hills_wave": 260.0,
 		"features": {
+			"repair": {"at": 0.38, "side": 1.0},
 			"buildings": {"from": 0.03, "to": 0.84, "count": 64, "min_h": 8.0, "max_h": 26.0},
 			# The stadium: the road opens out and is lined with stands to the flag.
 			"arena": {"from": 0.84, "half_width": 14.0, "stands": 30},

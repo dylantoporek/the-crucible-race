@@ -92,9 +92,9 @@ func _physics_process(delta: float) -> void:
 	var my_lateral := track.lateral_offset_at(pos, offset, on_route)
 	if style == BRUISER and rival != null and is_instance_valid(rival):
 		var rival_off := track.track_offset(rival)
-		if absf(rival_off - offset) < 9.0:
+		if absf(rival_off - offset) < 7.0:
 			var rival_lane := track.lateral_offset_at(rival.global_position, rival_off)
-			lane = lerpf(lane, rival_lane, aggression * 0.9)
+			lane = lerpf(lane, rival_lane, aggression * 0.65)
 	elif style == RACER:
 		lane += _room_for_others(offset, my_lateral)
 	# Hurt? Swing over to a repair pad if one is coming up (they are all on the main road).

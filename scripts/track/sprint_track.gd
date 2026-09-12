@@ -1358,9 +1358,14 @@ func _build_fallen_columns(a: float, b: float, cfg: Dictionary) -> void:
 func _build_repair_station(a: float, b: float, cfg: Dictionary) -> void:
 	var o: float = lerpf(a, b, float(cfg["at"]))
 	var side: float = float(cfg["side"])
-	var lat: float = side * (width_at(o) - RepairStation.PAD_WIDTH * 0.5 - 0.6)
+	# On a narrow road a full-width pad would cover the racing line, so everyone would be
+	# repaired just by driving past. Pull it in until it is a genuine detour to the kerb.
+	var hw := width_at(o)
+	var pad_w: float = minf(RepairStation.PAD_WIDTH, hw * 0.55)
+	var lat: float = side * (hw - pad_w * 0.5 - 0.6)
 	var f := frame_at(o)
 	var station := RepairStation.new()
+	station.pad_width = pad_w
 	station.transform = Transform3D(Basis.looking_at(f.tangent, Vector3.UP), surface_point(o, lat) + Vector3.UP * 0.02)
 	add_child(station)
 	_repair_stations.append([o, lat])
