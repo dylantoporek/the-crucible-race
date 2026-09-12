@@ -15,6 +15,7 @@ var _health_bar: ProgressBar
 var _gadget_label: Label
 var _route_label: Label
 var _gadget_bar: ProgressBar
+var _jump_label: Label
 var _telemetry: Label
 var _controls: Label
 
@@ -80,7 +81,7 @@ func _build() -> void:
 	gadget_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	gadget_box.offset_left = -170
 	gadget_box.offset_right = 170
-	gadget_box.offset_top = -120
+	gadget_box.offset_top = -142
 	gadget_box.offset_bottom = -28
 	gadget_box.alignment = BoxContainer.ALIGNMENT_END
 	add_child(gadget_box)
@@ -92,6 +93,8 @@ func _build() -> void:
 	_gadget_bar.show_percentage = false
 	_gadget_bar.custom_minimum_size = Vector2(340, 8)
 	gadget_box.add_child(_gadget_bar)
+	_jump_label = _label("", font_small, HORIZONTAL_ALIGNMENT_CENTER)
+	gadget_box.add_child(_jump_label)
 
 	# Left: per-wheel telemetry.
 	_telemetry = _label("", font_small, HORIZONTAL_ALIGNMENT_LEFT)
@@ -125,7 +128,7 @@ func _build() -> void:
 	_controls = _label(
 		"W/S or triggers  throttle / brake (brake when stopped = reverse)\n" +
 		"A/D or left stick  steer      Space or X  handbrake\n" +
-		"Shift / E or A  use gadget      Q / Tab  change gadget after a pit stop\n" +
+		"C or B  jump      Shift / E or A  use gadget      Q / Tab  change gadget after a pit stop\n" +
 		"R  reset to track      1-7  restart at stage      F1  toggle HUD",
 		font_small, HORIZONTAL_ALIGNMENT_LEFT)
 	_controls.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
@@ -216,6 +219,13 @@ func _process(_delta: float) -> void:
 		_route_label.text = route.display_name.to_upper()
 	else:
 		_route_label.text = game.track.fork_hint(game.track.track_offset(player))
+
+	if player.jump_cooldown > 0.0:
+		_jump_label.text = "jump  %.1fs" % player.jump_cooldown
+		_jump_label.add_theme_color_override("font_color", Color(0.72, 0.72, 0.78, 0.75))
+	else:
+		_jump_label.text = "jump  READY  ·  C"
+		_jump_label.add_theme_color_override("font_color", Color(0.45, 0.88, 1.0))
 
 	var cue: String = game.countdown_text()
 	_countdown_label.text = cue

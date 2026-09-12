@@ -2,14 +2,13 @@ class_name Gadgets
 extends RefCounted
 ## The gadget roster. A car keeps whichever gadget it last picked up and can use it again
 ## and again, with COOLDOWN seconds between uses. Effects live in GadgetSlot.
+##
+## Jump is deliberately not in here: every car has one built in, on its own button and its
+## own cooldown, so a pickup is always a real weapon rather than a hop you already had.
 
 const COOLDOWN := 20.0
 
 const DEFS := {
-	&"jump": {
-		"name": "Jump", "color": Color(0.35, 0.80, 1.00), "duration": 0.0,
-		"blurb": "Launches the car over whatever is in front of it.",
-	},
 	&"shield": {
 		"name": "Shield", "color": Color(0.55, 0.95, 0.55), "duration": 5.0,
 		"blurb": "No damage for a few seconds, and anyone who touches you gets thrown.",

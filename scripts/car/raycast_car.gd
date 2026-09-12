@@ -14,6 +14,7 @@ signal impact(strength: float, other: Node)
 signal damaged(amount: float)
 signal wrecked
 signal repaired
+signal jumped
 
 const GROUND_MASK := 0b101  # world + props
 
@@ -68,9 +69,9 @@ const GROUND_MASK := 0b101  # world + props
 ## Health above this fraction drives exactly like a fresh car. Dents are cosmetic until you
 ## are genuinely in trouble; below it, the losses below ramp in to their full value at zero.
 @export_range(0.0, 1.0) var damage_grace := 0.5
-@export var power_loss_when_wrecked := 0.28 ## Fraction of engine force lost at zero health
-@export var speed_loss_when_wrecked := 0.12
-@export var pull_when_wrecked := 0.07       ## Steering bias toward the damaged side at zero health
+@export var power_loss_when_wrecked := 0.15 ## Fraction of engine force lost at zero health
+@export var speed_loss_when_wrecked := 0.06
+@export var pull_when_wrecked := 0.035      ## Steering bias toward the damaged side at zero health
 
 var paint_color := Color(0.9, 0.2, 0.15)
 
@@ -79,6 +80,7 @@ var health := 100.0
 var pull_sign := 1.0             ## Which way a damaged car pulls: +1 right, -1 left
 var shielded := false            ## Immune, and throws anyone who touches us
 var invulnerable := 0.0          ## Seconds of damage immunity left after a reset
+var jump_cooldown := 0.0         ## Seconds until the car can hop again
 var engine_multiplier := 1.0     ## Set by gadgets (boost)
 var speed_multiplier := 1.0
 var _paint_mat: ShaderMaterial
@@ -172,6 +174,7 @@ func _physics_process(delta: float) -> void:
 		_air_stabilize(up)
 	_track_flip(delta, up)
 	_impact_cooldown = maxf(0.0, _impact_cooldown - delta)
+	jump_cooldown = maxf(0.0, jump_cooldown - delta)
 	if invulnerable > 0.0:
 		invulnerable = maxf(invulnerable - delta, 0.0)
 		# Blink while it lasts, so it is obvious the car cannot be hurt yet.
@@ -236,7 +239,7 @@ func _update_wheel(w: CarWheel, space: PhysicsDirectSpaceState3D, delta: float, 
 	var normal: Vector3 = hit.normal
 	var surface := Surfaces.for_collider(hit.collider)
 	var dist := origin.distance_to(hit_pos)
-	var bump := surface.bumpiness + 0.02 * handling_penalty()
+	var bump := surface.bumpiness + 0.01 * handling_penalty()
 	if bump > 0.0:
 		dist += randf_range(-bump, bump) * clampf(speed_abs / 8.0, 0.0, 1.0)
 
@@ -509,8 +512,29 @@ func _update_damage_visuals() -> void:
 	($ShieldBubble as MeshInstance3D).visible = shielded
 
 
+## Every car can hop, on its own button and its own short cooldown, whatever gadget it is
+## carrying. It is there to get you out of the nonsense — a spinning car across the road, a
+## crate, a wall of stopped traffic — not to be a race-winning move.
+const JUMP_COOLDOWN := 5.0
+const JUMP_STRENGTH := 6.8
+
+
+func can_jump() -> bool:
+	return jump_cooldown <= 0.0 and grounded_wheels >= 2 and not controls_locked
+
+
+## Hop if we can, and start the cooldown. Returns whether it fired.
+func try_jump() -> bool:
+	if not can_jump():
+		return false
+	jump(JUMP_STRENGTH)
+	jump_cooldown = JUMP_COOLDOWN
+	jumped.emit()
+	return true
+
+
 ## Hop: straight up with a little forward carry. Only from the ground.
-func jump(strength: float = 6.8) -> void:
+func jump(strength: float = JUMP_STRENGTH) -> void:
 	if grounded_wheels < 2:
 		return
 	var fwd := -global_transform.basis.z
@@ -547,6 +571,7 @@ func reset_to(t: Transform3D) -> void:
 	steer = 0.0
 	_flipped_time = 0.0
 	invulnerable = 0.0
+	jump_cooldown = 0.0
 	($Visual as Node3D).visible = true
 	for w in wheels:
 		w.compression = 0.0

@@ -122,15 +122,25 @@ func _physics_process(delta: float) -> void:
 				_check(_box2.visible and not _box2.taken, "a car that already has a gadget passes through and leaves the box")
 				var slot := player.gadget_slot
 				slot.gadget = &""
-				slot.give(&"jump")
+				slot.give(&"oil")
 				step = 3
 		3:
 			var slot := player.gadget_slot
-			_check(slot.can_use(), "jump is ready")
+			_check(not Gadgets.DEFS.has(&"jump"), "jump is not a pickup any more")
+			_check(slot.can_use(), "a picked-up gadget is ready")
 			var ok := slot.try_use()
-			_check(ok, "jump fires")
+			_check(ok, "it fires")
 			_check(slot.cooldown > 19.0, "cooldown starts at %.0f s" % Gadgets.COOLDOWN)
 			_check(not slot.can_use(), "cannot fire again during cooldown")
+			# Every car has a jump of its own, on its own cooldown, whatever it is carrying.
+			_check(player.jump_cooldown == 0.0, "the built-in jump is ready even mid gadget cooldown")
+			_check(player.can_jump(), "and available while holding a gadget")
+			_check(player.try_jump(), "jump fires")
+			_check(is_equal_approx(player.jump_cooldown, RaycastCar.JUMP_COOLDOWN),
+					"jump has its own %.0f s cooldown" % RaycastCar.JUMP_COOLDOWN)
+			_check(not player.can_jump(), "cannot jump again during that cooldown")
+			_check(slot.gadget == &"oil" and slot.cooldown > 19.0,
+					"jumping leaves the gadget and its cooldown alone")
 			_mark = t
 			step = 4
 		4:

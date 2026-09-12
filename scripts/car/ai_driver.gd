@@ -192,6 +192,7 @@ func _physics_process(delta: float) -> void:
 	car.input_brake = brake
 	car.input_steer = steer_cmd
 	car.input_handbrake = false
+	_consider_jump(offset, my_lateral, speed)
 	_consider_gadget(offset, my_lateral, corner, speed, target_speed)
 
 
@@ -212,7 +213,9 @@ func _room_for_others(offset: float, my_lateral: float) -> float:
 			continue
 		var gap: float = track.lateral_offset_at(oc.global_position, offset + along) - my_lateral
 		var agap := absf(gap)
-		if along > 1.5 and along < 9.0 and agap < 2.4:
+		# Only a car we are actually catching counts as blocking; matching pace in front of
+		# us is just traffic, and hopping over that every few seconds is noise.
+		if along > 1.5 and along < 9.0 and agap < 2.4 and oc.speed < car.speed - 4.0:
 			_blocked_ahead = true
 		if absf(along) < 6.0 and agap < 3.5:
 			_crowded = true
@@ -230,6 +233,29 @@ func _pit_choice() -> void:
 	var slot := car.gadget_slot
 	if slot.in_pit() and slot.gadget != preferred_gadget:
 		slot.select(preferred_gadget)
+
+
+## The built-in hop. Used to get out of trouble rather than to gain time: wedged against
+## something, or about to pile into a car sitting in our path.
+func _consider_jump(offset: float, my_lateral: float, speed: float) -> void:
+	if not car.can_jump():
+		return
+	# A real wedge, not the moment of slow going every car has off the line. The reverse
+	# manoeuvre kicks in at 2 s, so this is the last try before giving up and backing out.
+	if _stuck_time > 1.5:
+		car.try_jump()
+		return
+	if speed < 12.0:
+		return
+	if _blocked_ahead:
+		car.try_jump()
+		return
+	if rival != null and is_instance_valid(rival):
+		var r_off := track.track_offset(rival)
+		var along := r_off - offset
+		var side := track.lateral_offset_at(rival.global_position, r_off) - my_lateral
+		if along > 2.0 and along < 8.0 and absf(side) < 2.5 and absf(rival.speed) < speed - 6.0:
+			car.try_jump()
 
 
 ## Simple triggers for whatever gadget the car is carrying. Bruisers use theirs on the
@@ -257,10 +283,6 @@ func _consider_gadget(offset: float, my_lateral: float, corner: float, speed: fl
 				if absf(rival_along) < 8.0 and absf(rival_side) < 5.0:
 					slot.try_use()
 			elif _crowded:
-				slot.try_use()
-		&"jump":
-			var rival_blocks := rival_along > 2.0 and rival_along < 8.0 and absf(rival_side) < 2.5
-			if _stuck_time > 0.8 or (speed > 10.0 and (rival_blocks or (not bruiser and _blocked_ahead))):
 				slot.try_use()
 		&"oil":
 			var rival_behind := rival_along < -3.0 and rival_along > -16.0 and absf(rival_side) < 3.0
