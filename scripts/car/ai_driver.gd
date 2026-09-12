@@ -84,6 +84,15 @@ func _physics_process(delta: float) -> void:
 	var far_tangent: Vector3 = far.tangent
 	var bend := maxf(near_tangent.angle_to(far_tangent),
 			maxf(near_tangent.angle_to(mid_tangent), mid_tangent.angle_to(far_tangent)))
+	# Peeling onto a route we have not joined yet is a corner even though the route's own
+	# curve looks straight ahead: the turn is the angle between where we point now and where
+	# it goes. Without this a car arrives at the split flat out and runs wide into the
+	# barrier on the far side of the junction.
+	if on_route == null and aim != null:
+		var heading := -car.global_transform.basis.z
+		heading.y = 0.0
+		if heading.length_squared() > 0.001:
+			bend = maxf(bend, heading.normalized().angle_to(near_tangent))
 	var corner := clampf(bend / 0.9, 0.0, 1.0)
 
 	# Lateral target: preferred lane, a slow wobble, and a shove toward the rival when alongside.
