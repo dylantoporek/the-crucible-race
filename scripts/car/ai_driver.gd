@@ -58,13 +58,17 @@ func _physics_process(delta: float) -> void:
 	var length := track.length
 	var pos := car.global_position
 	var offset := track.track_offset(car)
-	# The route we are on, or the one we mean to take at a fork just ahead.
-	var aim: SprintTrack.RouteLine = track.route_of(car)
+	# Two different routes matter here: the one we are actually driving on, which is what
+	# our own position means, and the one we are steering at, which at a fork is the branch
+	# we have not joined yet. Mixing them up makes a car peeling off read as off the road.
+	var on_route: SprintTrack.RouteLine = track.route_of(car)
+	var aim := on_route
 	if aim == null and preferred_route != &"":
 		for br in track.branches_forking(offset, 140.0, 170.0):
 			if br.id == preferred_route:
 				aim = br
 	var half_width := track.width_at(offset, aim)
+	var road_half := track.width_at(offset, on_route)
 	var speed := car.speed
 	var speed_abs := absf(speed)
 
@@ -85,7 +89,7 @@ func _physics_process(delta: float) -> void:
 	# Lateral target: preferred lane, a slow wobble, and a shove toward the rival when alongside.
 	_lane_wobble_phase += delta * 0.4
 	var lane := lane_offset * half_width + sin(_lane_wobble_phase) * 1.2
-	var my_lateral := track.lateral_offset_at(pos, offset, aim)
+	var my_lateral := track.lateral_offset_at(pos, offset, on_route)
 	if style == BRUISER and rival != null and is_instance_valid(rival):
 		var rival_off := track.track_offset(rival)
 		if absf(rival_off - offset) < 9.0:
@@ -101,7 +105,7 @@ func _physics_process(delta: float) -> void:
 
 	# Where hazards leave only a gap, thread it rather than holding a personal lane. Inside a
 	# ruined hall the gap is one of two lanes; asking with our own side keeps us in it.
-	var gate: Vector2 = track.hazard_gate(ahead.offset, my_lateral, aim)
+	var gate: Vector2 = track.hazard_gate(ahead.offset, my_lateral, on_route)
 	if gate.y > 0.0:
 		lane = gate.x + lane_offset * gate.y * 0.5
 		lane = clampf(lane, gate.x - gate.y + 1.6, gate.x + gate.y - 1.6)
@@ -164,7 +168,7 @@ func _physics_process(delta: float) -> void:
 		_stall_time += delta
 
 	# Way off the road, or lost for too long: put it back on the track.
-	if track.distance_from_center_at(pos, offset, aim) > half_width + SprintTrack.SHOULDER_WIDTH + 4.0:
+	if track.distance_from_center_at(pos, offset, on_route) > road_half + SprintTrack.SHOULDER_WIDTH + 4.0:
 		_offtrack_time += delta
 	else:
 		_offtrack_time = 0.0

@@ -1432,10 +1432,11 @@ func _plan_branches() -> void:
 			line.depth = float(cfg.get("depth", 0.0))
 			line.buildings = int(cfg.get("buildings", 0))
 			if line.kind == &"tunnel":
-				line.covered = Vector2(0.17, 0.83)
+				line.covered = Vector2(0.13, 0.87)
 			var swing: float = float(cfg.get("offset", 60.0))
 			var wiggle: float = float(cfg.get("wiggle", 0.0))
 			var waves: float = float(cfg.get("waves", 1.5))
+			var split_deg: float = float(cfg.get("split_angle", 24.0))
 			var f0 := frame_at(line.fork)
 			var f1 := frame_at(line.merge)
 			var chord: Vector3 = f1.pos - f0.pos
@@ -1443,13 +1444,18 @@ func _plan_branches() -> void:
 			var clen := chord.length()
 			var cdir := chord / maxf(clen, 0.001)
 			var cperp := cdir.cross(Vector3.UP).normalized()
+			# The route pulls away at a real angle so the split reads as a Y from the driver's
+			# seat: a tangential departure leaves the road looking continuous, with the branch
+			# only appearing as a slot in the barrier a hundred metres later. The ramp length
+			# is whatever that angle needs to reach the full swing.
+			var ramp: float = clampf(swing / maxf(tan(deg_to_rad(split_deg)) * clen, 1.0), 0.06, 0.42)
 			# Dense waypoints so the height can track the main road's hills exactly over the
 			# junctions at each end, where the two pavements overlap.
 			var m := 20
 			var pts: Array[Vector3] = [f0.pos]
 			for k in range(1, m):
 				var u := float(k) / float(m)
-				var bell := smoothstep(0.0, 0.36, u) * (1.0 - smoothstep(0.64, 1.0, u))
+				var bell := minf(u / ramp, minf((1.0 - u) / ramp, 1.0))
 				var lat := line.side * (swing * bell + wiggle * sin(u * TAU * waves) * bell)
 				var dip := line.depth * smoothstep(0.14, 0.36, u) * (1.0 - smoothstep(0.64, 0.86, u))
 				var p: Vector3 = f0.pos + cdir * (clen * u) + cperp * lat
@@ -1466,10 +1472,6 @@ func _plan_branches() -> void:
 				var prev: Vector3 = pts[maxi(i - 1, 0)]
 				var next: Vector3 = pts[mini(i + 1, n_pts - 1)]
 				var tangent := (next - prev) * 0.25
-				if i == 0:
-					tangent = f0.tangent * (clen / float(m)) * 0.35
-				elif i == n_pts - 1:
-					tangent = f1.tangent * (clen / float(m)) * 0.35
 				line.curve.add_point(pts[i], -tangent, tangent)
 			line.length = line.curve.get_baked_length()
 			var s := 0.0
@@ -1492,8 +1494,6 @@ func _build_branches() -> void:
 		var n := line.frames.size()
 		var corners: Array = []          # per frame: [left, right] or [] while still inside the main road
 		var inner_free: Array[bool] = []  # per frame: inner edge clear of the main road's wall
-		var gap_lo := [INF, -INF]
-		var gap_hi := [INF, -INF]
 		for i in n:
 			var f: Dictionary = line.frames[i]
 			var s: float = f["offset"]
@@ -1522,21 +1522,14 @@ func _build_branches() -> void:
 					inner.y = maxf(inner.y, floor_y)
 				if lat_out < main_hw + SHOULDER_WIDTH + 0.5:
 					outer.y = maxf(outer.y, floor_y)
-				var wall_lat := main_hw + SHOULDER_WIDTH
-				if lat_out > wall_lat - 0.3 and lat_in < wall_lat + 0.8:
-					var g: Array = gap_lo if s < line.length * 0.5 else gap_hi
-					g[0] = minf(float(g[0]), o)
-					g[1] = maxf(float(g[1]), o)
-				free = lat_in > wall_lat + 1.0
+				free = lat_in > main_hw + SHOULDER_WIDTH + 1.0
 			if inner_is_left:
 				left = inner
 			else:
 				right = inner
 			corners.append([left, right])
 			inner_free.append(free)
-		for g in [gap_lo, gap_hi]:
-			if float(g[0]) < float(g[1]):
-				_wall_gaps.append([float(g[0]) - 4.0, float(g[1]) + 4.0, line.side])
+		_open_wall_for(line)
 
 		var tunnel := line.kind == &"tunnel"
 		var road := SurfaceTool.new()
@@ -1590,6 +1583,7 @@ func _build_branches() -> void:
 		skirt_mi.mesh = skirt.commit()
 		skirt_mi.material_override = ToonMaterial.make(Color(0.36, 0.30, 0.24), 2.0, 0.5, 0.0)
 		add_child(skirt_mi)
+		_build_junction_marker(line)
 		if tunnel:
 			_build_tunnel_portals(line)
 		if line.buildings > 0:
@@ -1599,10 +1593,89 @@ func _build_branches() -> void:
 			_build_fork_sign(line)
 
 
+## Take the barrier out of the main road from the split to the point where the route has
+## pulled clear of it, and again on the way back in, so each junction reads as a mouth
+## rather than a slot. Measured from the geometry, so it never opens more than it must.
+func _open_wall_for(line: RouteLine) -> void:
+	var half := line.length * 0.5
+	var s := 0.0
+	var out_o := line.fork + 60.0
+	while s < half:
+		var o := _clear_of_wall(line, s)
+		if o > 0.0:
+			out_o = o
+			break
+		s += 2.0
+	_wall_gaps.append([line.fork - 4.0, out_o + 6.0, line.side])
+	s = line.length
+	var in_o := line.merge - 60.0
+	while s > half:
+		var o := _clear_of_wall(line, s)
+		if o > 0.0:
+			in_o = o
+			break
+		s -= 2.0
+	_wall_gaps.append([in_o - 6.0, line.merge + 4.0, line.side])
+
+
+## The main-road offset beside a point on a route, once that route's inner edge has cleared
+## the barrier there; 0 while it is still crossing.
+func _clear_of_wall(line: RouteLine, s: float) -> float:
+	var f := _curve_frame(line.curve, s, line.length)
+	var o := offset_of(to_global(f.pos))
+	var mf := frame_at(o)
+	var inner: float = (f.pos - mf.pos).dot(mf.right) * line.side - line.half_width
+	return o if inner > _main_width_at(o) + SHOULDER_WIDTH + 2.0 else 0.0
+
+
 static func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3) -> void:
 	for v in [a, b, c, a, c, d]:
 		st.set_normal(normal)
 		st.add_vertex(v)
+
+
+## A chevron board on the nose between the main road and a route, facing the oncoming
+## driver, so the split is unmistakable from a car's eye height.
+func _build_junction_marker(line: RouteLine) -> void:
+	# The nose is the first point where the route's inner edge has left real room beside the
+	# main road; the board and kerb go in that gap, clear of both driving lines.
+	var s := 0.0
+	var nose_o := -1.0
+	while s < line.length * 0.5:
+		var f := _curve_frame(line.curve, s, line.length)
+		var o := offset_of(to_global(f.pos))
+		var mf := frame_at(o)
+		var inner: float = (f.pos - mf.pos).dot(mf.right) * line.side - line.half_width
+		if inner > _main_width_at(o) + 5.5:
+			nose_o = o
+			break
+		s += 2.0
+	if nose_o < 0.0:
+		return
+	var mf2 := frame_at(nose_o)
+	var lat: float = line.side * (_main_width_at(nose_o) + 2.6)
+	var base: Vector3 = mf2.pos + mf2.right * lat + Vector3.UP * bump_at(nose_o)
+	var back: Vector3 = -mf2.tangent
+
+	var board := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(3.2, 1.9, 0.35)
+	board.mesh = bm
+	board.material_override = ToonMaterial.make(Color(0.10, 0.11, 0.14), 2.0, 0.5, 0.0)
+	board.transform = Transform3D(Basis.looking_at(back, Vector3.UP), base + Vector3.UP * 2.5)
+	add_child(board)
+	var label := line.display_name.to_upper()
+	_add_sign_text(("<  " + label) if line.side < 0.0 else (label + "  >"),
+			base + Vector3.UP * 2.5 + back * 0.25, back, 30)
+
+	# A low striped kerb on the nose itself, so the split has a visible divider.
+	var kerb := MeshInstance3D.new()
+	var km := BoxMesh.new()
+	km.size = Vector3(2.2, 0.5, 10.0)
+	kerb.mesh = km
+	kerb.material_override = ToonMaterial.make(Color(0.94, 0.84, 0.22), 2.0, 0.6, 0.0)
+	kerb.transform = Transform3D(Basis.looking_at(mf2.tangent, Vector3.UP), base + Vector3.UP * 0.25)
+	add_child(kerb)
 
 
 ## Dark lintels over each end of the covered stretch, with the route's name on the way in.
@@ -1680,11 +1753,11 @@ func _build_fork_sign(any_branch: RouteLine) -> void:
 			else:
 				right = br.display_name.to_upper() + "  >"
 	var centre := any_branch.main_name.to_upper() if any_branch.main_name != "" else "STRAIGHT ON"
-	var texts := [[left, -hw * 0.62], [centre, 0.0], [right, hw * 0.62]]
+	var texts := [[left, -hw * 0.70], [centre, 0.0], [right, hw * 0.70]]
 	for tx in texts:
 		if String(tx[0]) == "":
 			continue
-		_add_sign_text(String(tx[0]), f.pos + f.right * float(tx[1]) + Vector3.UP * (bar_y + 0.9 + bump_at(o)) - f.tangent * 0.3, f.tangent, 48)
+		_add_sign_text(String(tx[0]), f.pos + f.right * float(tx[1]) + Vector3.UP * (bar_y + 0.9 + bump_at(o)) - f.tangent * 0.3, f.tangent, 32)
 
 
 func _add_sign_text(text: String, pos: Vector3, tangent: Vector3, size: int) -> void:

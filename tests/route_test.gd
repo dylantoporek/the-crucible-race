@@ -50,6 +50,27 @@ func _ready() -> void:
 		_check(absf(br.length - (br.merge - br.fork)) < (br.merge - br.fork) * 0.25,
 				"%s is within 25%% of the main road's length over the same stretch (%.0f vs %.0f m)" % [br.display_name, br.length, br.merge - br.fork])
 	_check(ids.has("avenue") and ids.has("tunnel"), "routes are the avenue and the tunnel")
+	# The split has to be visible from the driver's seat: the route must peel away hard
+	# enough to clear the main road within a few car lengths, and the barrier must be open
+	# from the fork itself rather than slotted further along.
+	for br in brs:
+		var cleared := -1.0
+		var s := 0.0
+		while s < br.length * 0.5:
+			var f: Dictionary = track._curve_frame(br.curve, s, br.length)
+			var o: float = track.offset_of(track.to_global(f.pos))
+			var mf: Dictionary = track.frame_at(o)
+			if (f.pos - mf.pos).dot(mf.right) * br.side > track._main_width_at(o):
+				cleared = s
+				break
+			s += 2.0
+		_check(cleared > 0.0 and cleared < 30.0,
+				"%s peels clear of the main road within 30 m (%.0f m)" % [br.display_name, cleared])
+		var opens := false
+		for g in track._wall_gaps:
+			if float(g[2]) == br.side and float(g[0]) <= br.fork + 1.0 and float(g[1]) - float(g[0]) > 15.0:
+				opens = true
+		_check(opens, "%s: the barrier opens at the fork itself" % br.display_name)
 	fork = float(brs[0].fork)
 	merge = float(brs[0].merge)
 	# snap_to_track on a point inside the tunnel lands on the tunnel, not the road above.

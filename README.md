@@ -152,16 +152,20 @@ Definitions live in `scripts/gadgets/gadget_defs.gd`; effects in `scripts/car/ga
   radius). The descent no longer runs straight to the flag: it hands over to Crucible City,
   a tight, falling run through tall buildings that opens into the stadium for the last
   straight.
-- **Three ways through Waypoint Village.** A gantry before the fork names them. Straight on
-  is the **Old Town**: the main road, shortest, tightest. Right is the **Avenue**: wide and
-  sweeping but longest. Left is the **Tunnel**: narrow, drops 11 m below street level under
-  a roof, with an S-bend inside. A clean AI lap of each is within about 15% of the others
-  (old town slowest, avenue and tunnel a few seconds quicker but riskier in traffic). Each
-  route has its own gadget box row. The AI field splits a third each way. Positions and
-  progress compare across routes because distance along a branch maps back onto the main
-  road. Branches are declared per stage under `branches` in `route_spec.gd`.
+- **Three ways through Waypoint Village.** A gantry 105 m before the fork names them, the
+  HUD counts down to the split, and each route peels off at a real angle (`split_angle`)
+  with the barrier opened from the fork itself and a striped kerb nose and route board on
+  the divider — so the junction reads as a Y from the driver's seat rather than as a slot
+  in a wall further along. Straight on is the **Old Town**: the main road, shortest,
+  tightest. Right is the **Avenue**: wide and sweeping but longest. Left is the **Tunnel**:
+  narrow, drops 11 m below street level under a roof. A clean AI lap of each is within
+  about 15% of the others. Each route has its own gadget box row. The AI field splits a
+  third each way. Positions and progress compare across routes because distance along a
+  branch maps back onto the main road. Branches are declared per stage under `branches` in
+  `route_spec.gd`.
 - `tests/route_test.tscn` drives each route headlessly and checks it is drivable, tracked,
-  and about the same time as the others.
+  about the same time as the others, that it peels clear of the main road within 30 m, and
+  that the barrier opens at the fork.
 
 ## Changing the map
 
