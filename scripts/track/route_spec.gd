@@ -30,8 +30,9 @@ extends RefCounted
 ##   branches          alternative routes that leave the road and rejoin it later, see
 ##                     SprintTrack._plan_branches(): {id, name, kind (surface|tunnel), from, to,
 ##                     side (+1 right / -1 left), offset (how far out it swings), half_width,
-##                     wiggle and waves (S-bends along it), depth (tunnels: how far below
-##                     the road), buildings}
+##                     wiggle and waves (S-bends along it), split_angle (degrees the route
+##                     peels off at, which is what makes the fork visible), depth (tunnels:
+##                     how far below the road), buildings}
 ##   features          hazards and scenery, see SprintTrack._build_features();
 ##                     "repair": {at, side} places a repair station at that fraction of the stage
 ##
@@ -65,9 +66,11 @@ const STAGES: Array[Dictionary] = [
 		"climb": 10.0, "max_grade": 0.08, "hills_wave": 300.0,
 		"branches": [
 			{"id": &"avenue", "name": "Avenue", "kind": &"surface", "from": 0.30, "to": 0.86,
-			 "side": 1.0, "offset": 110.0, "half_width": 8.5, "wiggle": 26.0, "waves": 2.5, "buildings": 26},
+			 "side": 1.0, "offset": 110.0, "half_width": 8.5, "wiggle": 26.0, "waves": 2.5,
+			 "split_angle": 26.0, "buildings": 26},
 			{"id": &"tunnel", "name": "Tunnel", "kind": &"tunnel", "from": 0.30, "to": 0.86,
-			 "side": -1.0, "offset": 56.0, "half_width": 5.8, "wiggle": 18.0, "waves": 3.0, "depth": 11.0},
+			 "side": -1.0, "offset": 56.0, "half_width": 6.8, "wiggle": 10.0, "waves": 2.0,
+			 "split_angle": 24.0, "depth": 11.0},
 		],
 		"features": {
 			"pit_apron": {"at": 0.08, "length": 130.0, "side": 1.0, "width": 11.0},
