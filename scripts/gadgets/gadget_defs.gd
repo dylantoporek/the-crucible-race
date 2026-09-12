@@ -29,6 +29,11 @@ static func ids() -> Array:
 	return DEFS.keys()
 
 
+static func any_id() -> StringName:
+	var keys := DEFS.keys()
+	return keys[randi_range(0, keys.size() - 1)]
+
+
 static func random_id(rng: RandomNumberGenerator) -> StringName:
 	var keys := DEFS.keys()
 	return keys[rng.randi_range(0, keys.size() - 1)]

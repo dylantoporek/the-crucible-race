@@ -35,8 +35,20 @@ func _ready() -> void:
 	for c in track.get_children():
 		if c is PickupBox: boxes += 1
 		if c is RepairStation: stations += 1
-	_check(boxes >= 12 and boxes <= 24, "one gadget box roughly every %.0f m (%d boxes)" % [RouteSpec.PICKUP_SPACING, boxes])
+	_check(boxes >= 36 and boxes <= 72 and boxes % PickupBox.ROW_COUNT == 0,
+			"a row of %d gadget boxes roughly every %.0f m (%d boxes)" % [PickupBox.ROW_COUNT, RouteSpec.PICKUP_SPACING, boxes])
 	_check(stations == 3, "three repair stations (%d)" % stations)
+	var bruisers := 0
+	var racers := 0
+	for car in game.cars:
+		if car == player:
+			continue
+		var d := car.get_node("AIDriver") as AIDriver
+		if d.style == AIDriver.BRUISER:
+			bruisers += 1
+		elif d.style == AIDriver.RACER:
+			racers += 1
+	_check(bruisers == 8 and racers == 7, "grid is half bruisers, half racers (%d / %d)" % [bruisers, racers])
 	for c in track.get_children():
 		if c is PickupBox:
 			if _box == null:
@@ -161,6 +173,39 @@ func _physics_process(delta: float) -> void:
 		9:
 			if t - _mark > 0.6:
 				_check(is_equal_approx(player.health, 100.0), "repair station restores health on contact (%.0f)" % player.health)
+				# The pit is also where you choose a gadget.
+				var slot: GadgetSlot = player.gadget_slot
+				_check(slot.in_pit(), "pit stop opens a gadget choice window (%.1f s)" % slot.pit_window)
+				_check(slot.gadget != &"", "car is holding a gadget after the pit (%s)" % String(slot.gadget))
+				var before: StringName = slot.gadget
+				var cd_before := slot.cooldown
+				_check(slot.cycle(1) and slot.gadget != before, "Tab steps to the next gadget (%s -> %s)" % [String(before), String(slot.gadget)])
+				_check(slot.cycle(-1) and slot.gadget == before, "Q steps back")
+				var pick: StringName = &"oil" if before != &"oil" else &"boost"
+				_check(slot.select(pick) and slot.gadget == pick, "a gadget can be picked directly (%s)" % String(pick))
+				_check(is_equal_approx(slot.cooldown, cd_before), "swapping in the pit keeps the cooldown (%.1f s)" % slot.cooldown)
+				slot.pit_window = 0.0
+				_check(not slot.cycle(1) and slot.gadget == pick, "no swapping once the pit window has closed")
+				slot.reset()
+				_check(slot.gadget == &"", "slot cleared for the empty-handed pit check")
+				# Leave the pad so the next visit counts as a new arrival.
+				var st2: Array = track.next_repair_station(0.0, 1.0e9)
+				player.reset_to(Transform3D(Basis(), track.to_global(track.surface_point(float(st2[0]) - 60.0, 0.0) + Vector3.UP * 0.9)))
+				track.invalidate_cursor(player)
+				_mark = t
+				step = 10
+		10:
+			if t - _mark > 0.4:
+				player.take_damage(10.0, 1.0)
+				var st3: Array = track.next_repair_station(0.0, 1.0e9)
+				player.reset_to(Transform3D(Basis(), track.to_global(track.surface_point(float(st3[0]), float(st3[1])) + Vector3.UP * 0.9)))
+				track.invalidate_cursor(player)
+				_mark = t
+				step = 11
+		11:
+			if t - _mark > 0.6:
+				var slot: GadgetSlot = player.gadget_slot
+				_check(slot.gadget != &"" and slot.in_pit(), "an empty-handed car is handed a gadget at the pit (%s)" % String(slot.gadget))
 				print("RESULT: %s" % ("FAIL" if fails > 0 else "PASS"))
 				get_tree().quit(1 if fails > 0 else 0)
 				step = 99

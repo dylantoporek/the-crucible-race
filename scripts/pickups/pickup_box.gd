@@ -8,6 +8,7 @@ extends Area3D
 const GLOW := Color(0.25, 0.95, 1.0)
 const GLOW_ALT := Color(1.0, 0.45, 0.95)
 const FLOAT_HEIGHT := 1.15               ## How far above the road the cube hovers
+const ROW_COUNT := 3                     ## Boxes side by side at each spot
 
 static var _rng := RandomNumberGenerator.new()
 

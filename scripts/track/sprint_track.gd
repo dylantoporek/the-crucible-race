@@ -1127,16 +1127,20 @@ func next_repair_station(offset: float, within: float) -> Array:
 ## A single gadget box every PICKUP_SPACING metres, wandering from one side of the road to
 ## the other so it is not always on the racing line, and kept out of the halls.
 func _build_pickups() -> void:
+	# A row of three across the road at each spot, so a pack arriving together can all arm up.
 	var o := start_offset + 170.0
 	var n := 0
 	while o < finish_offset - 80.0:
 		if not _near_hall(o, 28.0):
 			var hw := width_at(o)
-			var lat := sin(float(n) * 1.9) * (hw - 2.5) * 0.7
-			var box := PickupBox.new()
-			box.position = surface_point(o, lat) + Vector3.UP * PickupBox.FLOAT_HEIGHT
-			add_child(box)
-			_pickups.append(box)
+			var gap := minf(3.4, (hw - 2.2) / 2.0)
+			var centre := sin(float(n) * 1.9) * (hw - 2.2 - gap) * 0.6
+			for k in PickupBox.ROW_COUNT:
+				var lat := centre + (float(k) - (PickupBox.ROW_COUNT - 1) * 0.5) * gap
+				var box := PickupBox.new()
+				box.position = surface_point(o, lat) + Vector3.UP * PickupBox.FLOAT_HEIGHT
+				add_child(box)
+				_pickups.append(box)
 		n += 1
 		o += RouteSpec.PICKUP_SPACING
 

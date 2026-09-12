@@ -1,8 +1,9 @@
 class_name RepairStation
 extends Area3D
 ## A repair pad at the side of the road. Drive onto it and the car is made whole; it costs
-## you the line and a little time, which is the trade. Green everything, so it cannot be
-## mistaken for a hazard or a gadget box.
+## you the line and a little time, which is the trade. It is also the pit: for a few
+## seconds after rolling over it you can pick any gadget, or you are handed one if you had
+## none. Green everything, so it cannot be mistaken for a hazard or a gadget box.
 
 const GREEN := Color(0.30, 0.95, 0.45)
 const PAD_LENGTH := 16.0
@@ -91,4 +92,6 @@ func _process(delta: float) -> void:
 
 func _on_body_entered(body: Node3D) -> void:
 	if body is RaycastCar:
-		(body as RaycastCar).repair()
+		var car := body as RaycastCar
+		car.repair()
+		car.gadget_slot.open_pit()
