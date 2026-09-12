@@ -129,6 +129,7 @@ func _spawn_car(index: int, is_player: bool) -> RaycastCar:
 		ai.track = track
 		ai.lane_offset = randf_range(-0.45, 0.45)
 		ai.others = cars
+		ai.preferred_route = [&"", &"avenue", &"tunnel"][index % 3]
 		# Every other grid slot is a bruiser; the rest would rather win than trade paint.
 		if index % 2 == 0:
 			ai.style = AIDriver.BRUISER

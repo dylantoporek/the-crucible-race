@@ -13,6 +13,8 @@ var rival: RaycastCar
 var others: Array = []        ## Every car in the field, for giving room / spotting blockers
 var style: StringName = BRUISER
 var preferred_gadget: StringName = &"shield"   ## What this driver picks at a pit stop
+var preferred_route: StringName = &""          ## Branch id this driver takes at a fork; "" = main road
+var resets := 0                                ## Times the watchdog has put the car back on the road
 ## Preferred lateral position as a fraction of the road's half-width, so the same driver
 ## works on a narrow mountain road and a wide desert.
 var lane_offset := 0.0
@@ -56,22 +58,34 @@ func _physics_process(delta: float) -> void:
 	var length := track.length
 	var pos := car.global_position
 	var offset := track.track_offset(car)
-	var half_width := track.width_at(offset)
+	# The route we are on, or the one we mean to take at a fork just ahead.
+	var aim: SprintTrack.RouteLine = track.route_of(car)
+	if aim == null and preferred_route != &"":
+		for br in track.branches_forking(offset, 140.0, 170.0):
+			if br.id == preferred_route:
+				aim = br
+	var half_width := track.width_at(offset, aim)
 	var speed := car.speed
 	var speed_abs := absf(speed)
 
 	# Look-ahead point grows with speed.
 	var look := clampf(7.0 + speed_abs * 0.6, 8.0, 42.0)
-	var ahead := track.frame_at(minf(offset + look, length))
-	var far := track.frame_at(minf(offset + look * 2.6, length))
-	var far_tangent: Vector3 = far.tangent
+	var ahead := track.frame_at(minf(offset + look, length), aim)
+	var mid := track.frame_at(minf(offset + look * 1.7, length), aim)
+	var far := track.frame_at(minf(offset + look * 2.6, length), aim)
+	# How much the road bends ahead: the largest heading change between any two of the
+	# look-ahead points, so a chicane whose two arcs cancel out still reads as a corner.
 	var near_tangent: Vector3 = ahead.tangent
-	var corner := clampf(near_tangent.angle_to(far_tangent) / 0.9, 0.0, 1.0)
+	var mid_tangent: Vector3 = mid.tangent
+	var far_tangent: Vector3 = far.tangent
+	var bend := maxf(near_tangent.angle_to(far_tangent),
+			maxf(near_tangent.angle_to(mid_tangent), mid_tangent.angle_to(far_tangent)))
+	var corner := clampf(bend / 0.9, 0.0, 1.0)
 
 	# Lateral target: preferred lane, a slow wobble, and a shove toward the rival when alongside.
 	_lane_wobble_phase += delta * 0.4
 	var lane := lane_offset * half_width + sin(_lane_wobble_phase) * 1.2
-	var my_lateral := track.lateral_offset_at(pos, offset)
+	var my_lateral := track.lateral_offset_at(pos, offset, aim)
 	if style == BRUISER and rival != null and is_instance_valid(rival):
 		var rival_off := track.track_offset(rival)
 		if absf(rival_off - offset) < 9.0:
@@ -79,15 +93,15 @@ func _physics_process(delta: float) -> void:
 			lane = lerpf(lane, rival_lane, aggression * 0.9)
 	elif style == RACER:
 		lane += _room_for_others(offset, my_lateral)
-	# Hurt? Swing over to a repair pad if one is coming up.
-	if car.health < 45.0:
+	# Hurt? Swing over to a repair pad if one is coming up (they are all on the main road).
+	if car.health < 45.0 and aim == null:
 		var station: Array = track.next_repair_station(offset, 220.0)
 		if not station.is_empty():
 			lane = float(station[1])
 
 	# Where hazards leave only a gap, thread it rather than holding a personal lane. Inside a
 	# ruined hall the gap is one of two lanes; asking with our own side keeps us in it.
-	var gate: Vector2 = track.hazard_gate(ahead.offset, my_lateral)
+	var gate: Vector2 = track.hazard_gate(ahead.offset, my_lateral, aim)
 	if gate.y > 0.0:
 		lane = gate.x + lane_offset * gate.y * 0.5
 		lane = clampf(lane, gate.x - gate.y + 1.6, gate.x + gate.y - 1.6)
@@ -150,7 +164,7 @@ func _physics_process(delta: float) -> void:
 		_stall_time += delta
 
 	# Way off the road, or lost for too long: put it back on the track.
-	if track.distance_from_center_at(pos, offset) > half_width + SprintTrack.SHOULDER_WIDTH + 4.0:
+	if track.distance_from_center_at(pos, offset, aim) > half_width + SprintTrack.SHOULDER_WIDTH + 4.0:
 		_offtrack_time += delta
 	else:
 		_offtrack_time = 0.0
@@ -159,6 +173,7 @@ func _physics_process(delta: float) -> void:
 		car.reset_to(track.snap_to_track(pos, 12.0))
 		track.invalidate_cursor(car)
 		reset_state()
+		resets += 1
 
 	car.input_throttle = throttle
 	car.input_brake = brake

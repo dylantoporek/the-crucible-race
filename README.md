@@ -54,7 +54,7 @@ godot --headless --path . --export-release "Web" build/web/index.html
 | Reset to track | R | Y |
 | Use gadget | Shift or E | A |
 | Change gadget (after a pit stop) | Q / Tab | LB / RB |
-| Restart the field at stage 1–6 | 1–6 | |
+| Restart the field at stage 1–7 | 1–7 | |
 | Toggle HUD | F1 | |
 
 The race starts with a READY / SET / GO hold of about two and a half seconds, on the
@@ -75,7 +75,7 @@ the part of the course under discussion.
   soft-surface sink, bumpiness and dust. Asphalt, dirt, sand, ice, snow and grass are
   registered in `surface_library.gd`. Add a terrain by adding one line there.
 - **Generated sprint course** (`scripts/track/sprint_track.gd`, `route_spec.gd`): an
-  8.5 km point-to-point run through six stages — badlands dirt, a village, a wide ruined
+  9.1 km point-to-point run through seven stages — badlands dirt, a village, a wide ruined
   desert, a climbing city, a mountain pass and the descent into the arena. The route is
   generated from a stage table rather than hand-placed control points, so changing the map
   means editing data. Road width, surface mix, corner tightness, gradient and hazards are
@@ -144,6 +144,25 @@ back to the full scan on a cache miss or when a body is reset or teleported.
 Definitions live in `scripts/gadgets/gadget_defs.gd`; effects in `scripts/car/gadget_slot.gd`.
 `tests/gadget_test.tscn` exercises all of it headlessly and runs in CI.
 
+## Cities and the village routes
+
+- **City sections are technical.** Waypoint Village, Foothill City and the new final stage,
+  Crucible City, use `jogs`: block corners of 45–80 degrees, a short straight, and the same
+  corner back, alternating direction, on top of a tight S-bend wiggle (30–34 m minimum
+  radius). The descent no longer runs straight to the flag: it hands over to Crucible City,
+  a tight, falling run through tall buildings that opens into the stadium for the last
+  straight.
+- **Three ways through Waypoint Village.** A gantry before the fork names them. Straight on
+  is the **Old Town**: the main road, shortest, tightest. Right is the **Avenue**: wide and
+  sweeping but longest. Left is the **Tunnel**: narrow, drops 11 m below street level under
+  a roof, with an S-bend inside. A clean AI lap of each is within about 15% of the others
+  (old town slowest, avenue and tunnel a few seconds quicker but riskier in traffic). Each
+  route has its own gadget box row. The AI field splits a third each way. Positions and
+  progress compare across routes because distance along a branch maps back onto the main
+  road. Branches are declared per stage under `branches` in `route_spec.gd`.
+- `tests/route_test.tscn` drives each route headlessly and checks it is drivable, tracked,
+  and about the same time as the others.
+
 ## Changing the map
 
 Everything about the course lives in `scripts/track/route_spec.gd`. Each stage declares how
@@ -197,7 +216,8 @@ scripts/camera/    chase_camera
 scripts/ui/        debug_hud
 scripts/game/      game (spawning, laps, positions)
 shaders/           toon.gdshader
-tests/             smoke_test (headless physics check)
+tests/             smoke_test, gadget_test, route_test (headless checks, all run in CI)
+tools/             dump_course (course geometry to JSON, for drawing maps)
 .github/workflows/ deploy-web.yml
 ```
 
