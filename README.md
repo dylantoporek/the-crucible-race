@@ -51,7 +51,7 @@ godot --headless --path . --export-release "Web" build/web/index.html
 | Brake (reverse when stopped) | S / Down | Left trigger |
 | Steer | A / D, Left / Right | Left stick |
 | Handbrake | Space | X |
-| Reset to track | R | Y |
+| Reset to track (rolling restart) | R | Y |
 | Use gadget | Shift or E | A |
 | Change gadget (after a pit stop) | Q / Tab | LB / RB |
 | Restart the field at stage 1–7 | 1–7 | |
@@ -114,6 +114,13 @@ back to the full scan on a cache miss or when a body is reset or teleported.
 
 ## Damage, repairs and gadgets
 
+- **Getting going again.** Reset drops the car back in the middle of the road, pointing
+  down it, already rolling at about 40 mph, with 2.5 s of immunity so the pack cannot wipe
+  it out before it has moved. The car blinks while that lasts. Where the middle is blocked
+  — a hazard field, or the colonnade down a ruined hall — it takes the centre of the clear
+  lane, and on an alternative route it uses that route's middle. The AI's stuck-car
+  watchdog recovers the same way, so a reset opponent is never a stationary obstacle.
+  `RESET_SPEED` and `RESET_INVULN` in `scripts/car/raycast_car.gd`.
 - **Damage.** Every car has 100 health. Sideways and head-on impacts take it away —
   landing a jump does not — and what a hit costs depends on how fast you were going as
   well as how hard it landed: the same shunt at 34 m/s costs about three times what it

@@ -676,8 +676,30 @@ func _line_near(global_pos: Vector3) -> RouteLine:
 	return null
 
 
-## Put a car back on the road near where it is now. `advance` moves it a little further up
-## the course so it does not land back against whatever stopped it.
+## Where to drop a car after a reset: the middle of the road, pointing down it, a little
+## further on so it does not land back against whatever stopped it. Where the middle is
+## blocked — a hazard field, or the colonnade down a ruined hall — it takes the centre of
+## the clear lane instead, and on an alternative route it uses that route's own middle.
+func recovery_transform(global_pos: Vector3, advance: float = 12.0) -> Transform3D:
+	var line := _line_near(global_pos)
+	if line != null:
+		var s := clampf(line.curve.get_closest_offset(to_local(global_pos)) + advance, 0.0, line.length)
+		var bf := _curve_frame(line.curve, s, line.length)
+		return Transform3D(Basis.looking_at(global_transform.basis * bf.tangent, Vector3.UP),
+				to_global(bf.pos + Vector3.UP * 1.4))
+	var off := clampf(offset_of(global_pos) + advance, 0.0, length)
+	var f := frame_at(off)
+	var lane := 0.0
+	var gate: Vector2 = hazard_gate(off, lateral_offset_at(global_pos, off))
+	if gate.y > 0.0:
+		lane = gate.x
+	return Transform3D(Basis.looking_at(global_transform.basis * f.tangent, Vector3.UP),
+			to_global(surface_point(off, lane) + Vector3.UP * 1.4))
+
+
+## Put a car back on the road near where it is now, keeping the side of the road it was on.
+## `advance` moves it a little further up the course so it does not land back against
+## whatever stopped it.
 func snap_to_track(global_pos: Vector3, advance: float = 0.0, line: RouteLine = null) -> Transform3D:
 	if line == null:
 		line = _line_near(global_pos)

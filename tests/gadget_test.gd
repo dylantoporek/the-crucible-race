@@ -225,6 +225,38 @@ func _physics_process(delta: float) -> void:
 			if t - _mark > 0.6:
 				var slot: GadgetSlot = player.gadget_slot
 				_check(slot.gadget != &"" and slot.in_pit(), "an empty-handed car is handed a gadget at the pit (%s)" % String(slot.gadget))
+				# Reset: back to the middle of the road, already rolling, briefly untouchable.
+				var o0: float = track.start_offset + 300.0
+				var kerb: Vector3 = track.surface_point(o0, track.width_at(o0) - 1.0) + Vector3.UP
+				player.reset_to(Transform3D(Basis(), track.to_global(kerb)))
+				track.invalidate_cursor(player)
+				_mark = t
+				step = 12
+		12:
+			if t - _mark > 0.3:
+				var was: float = track.distance_from_center_at(player.global_position, track.track_offset(player))
+				_check(was > 4.0, "car is stranded at the kerb before the reset (%.1f m off centre)" % was)
+				player.respawn_at(track.recovery_transform(player.global_position))
+				track.invalidate_cursor(player)
+				var off: float = track.track_offset(player)
+				var centred: float = track.distance_from_center_at(player.global_position, off)
+				_check(centred < 1.5, "reset puts the car in the middle of the road (%.1f m off centre)" % centred)
+				_check(absf(player.linear_velocity.length() - RaycastCar.RESET_SPEED) < 0.5,
+						"reset leaves it rolling at about 40 mph (%.0f km/h)" % (player.linear_velocity.length() * 3.6))
+				_check(player.linear_velocity.dot(-player.global_transform.basis.z) > 0.0, "...pointing down the road")
+				var hp: float = player.health
+				player.take_damage(25.0, 1.0)
+				_check(is_equal_approx(player.health, hp), "the pack cannot hurt it during the reset window")
+				_check(player.invulnerable > 0.0, "the window is counting down (%.1f s)" % player.invulnerable)
+				player.linear_velocity = Vector3.ZERO
+				_mark = t
+				step = 13
+		13:
+			if t - _mark > RaycastCar.RESET_INVULN + 0.3:
+				_check(player.invulnerable == 0.0, "the window closes on its own")
+				var hp2: float = player.health
+				player.take_damage(20.0, 1.0)
+				_check(player.health < hp2, "and the car can be hurt again afterwards")
 				print("RESULT: %s" % ("FAIL" if fails > 0 else "PASS"))
 				get_tree().quit(1 if fails > 0 else 0)
 				step = 99

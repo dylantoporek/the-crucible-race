@@ -250,7 +250,8 @@ func distance_remaining(car: RaycastCar) -> float:
 
 
 func _on_player_reset() -> void:
-	player.reset_to(track.snap_to_track(player.global_position))
+	player.respawn_at(track.recovery_transform(player.global_position))
+	track.invalidate_cursor(player)
 	track.invalidate_cursor(player)
 
 

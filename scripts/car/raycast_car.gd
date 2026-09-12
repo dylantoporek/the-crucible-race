@@ -78,6 +78,7 @@ var paint_color := Color(0.9, 0.2, 0.15)
 var health := 100.0
 var pull_sign := 1.0             ## Which way a damaged car pulls: +1 right, -1 left
 var shielded := false            ## Immune, and throws anyone who touches us
+var invulnerable := 0.0          ## Seconds of damage immunity left after a reset
 var engine_multiplier := 1.0     ## Set by gadgets (boost)
 var speed_multiplier := 1.0
 var _paint_mat: ShaderMaterial
@@ -171,6 +172,10 @@ func _physics_process(delta: float) -> void:
 		_air_stabilize(up)
 	_track_flip(delta, up)
 	_impact_cooldown = maxf(0.0, _impact_cooldown - delta)
+	if invulnerable > 0.0:
+		invulnerable = maxf(invulnerable - delta, 0.0)
+		# Blink while it lasts, so it is obvious the car cannot be hurt yet.
+		($Visual as Node3D).visible = invulnerable <= 0.0 or fmod(invulnerable, 0.24) > 0.12
 
 
 func _update_steering(delta: float, speed_abs: float) -> void:
@@ -473,7 +478,7 @@ func is_wrecked() -> bool:
 
 ## `side` is the local x of the contact: positive means the right flank took it.
 func take_damage(amount: float, side: float = 0.0) -> void:
-	if amount <= 0.0 or shielded:
+	if amount <= 0.0 or shielded or invulnerable > 0.0:
 		return
 	var was_alive := health > 0.0
 	health = maxf(health - amount, 0.0)
@@ -518,12 +523,31 @@ var gadget_slot: GadgetSlot:
 
 
 ## Teleport to a transform with zero velocity (used for resets and grid placement).
+## About 40 mph. A reset that leaves you stopped in the middle of a race just hands the
+## pack a stationary target, so a recovered car rejoins already rolling.
+const RESET_SPEED := 17.9
+const RESET_INVULN := 2.5        ## Seconds of immunity after a reset
+
+## Put the car back on the road already moving, with a moment of immunity so it is not
+## wiped out again before it has had a chance to go anywhere.
+func respawn_at(t: Transform3D, launch_speed: float = RESET_SPEED, invuln: float = RESET_INVULN) -> void:
+	reset_to(t)
+	if not controls_locked:
+		linear_velocity = -t.basis.z * launch_speed
+		speed = launch_speed
+	invulnerable = maxf(invulnerable, invuln)
+	_impact_cooldown = maxf(_impact_cooldown, 0.25)
+	_update_damage_visuals()
+
+
 func reset_to(t: Transform3D) -> void:
 	global_transform = t
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	steer = 0.0
 	_flipped_time = 0.0
+	invulnerable = 0.0
+	($Visual as Node3D).visible = true
 	for w in wheels:
 		w.compression = 0.0
 
