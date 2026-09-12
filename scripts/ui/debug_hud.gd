@@ -79,7 +79,7 @@ func _build() -> void:
 	gadget_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	gadget_box.offset_left = -170
 	gadget_box.offset_right = 170
-	gadget_box.offset_top = -92
+	gadget_box.offset_top = -120
 	gadget_box.offset_bottom = -28
 	gadget_box.alignment = BoxContainer.ALIGNMENT_END
 	add_child(gadget_box)
@@ -114,11 +114,12 @@ func _build() -> void:
 	_controls = _label(
 		"W/S or triggers  throttle / brake (brake when stopped = reverse)\n" +
 		"A/D or left stick  steer      Space or X  handbrake\n" +
-		"Shift / E or A  use gadget      R  reset to track      1-6  restart at stage      F1  toggle HUD",
+		"Shift / E or A  use gadget      Q / Tab  change gadget after a pit stop\n" +
+		"R  reset to track      1-6  restart at stage      F1  toggle HUD",
 		font_small, HORIZONTAL_ALIGNMENT_LEFT)
 	_controls.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	_controls.offset_left = 24
-	_controls.offset_top = -80
+	_controls.offset_top = -100
 	_controls.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9, 0.7))
 	add_child(_controls)
 
@@ -166,7 +167,19 @@ func _process(_delta: float) -> void:
 	_health_bar.add_theme_stylebox_override("fill", hfill)
 
 	var slot: GadgetSlot = player.gadget_slot
-	if slot.gadget == &"":
+	if slot.in_pit() and slot.gadget != &"":
+		var row := PackedStringArray()
+		for id: StringName in Gadgets.ids():
+			var nm := Gadgets.display_name(id)
+			row.append("[ %s ]" % nm.to_upper() if id == slot.gadget else nm.to_lower())
+		_gadget_label.text = "PIT STOP  ·  Q / Tab  (LB / RB)  to choose   %.0fs\n%s" % [
+				ceilf(slot.pit_window), "   ".join(row)]
+		_gadget_label.add_theme_color_override("font_color", RepairStation.GREEN.lightened(0.3))
+		_gadget_bar.value = slot.pit_window / GadgetSlot.PIT_WINDOW
+		var pfill := StyleBoxFlat.new()
+		pfill.bg_color = RepairStation.GREEN
+		_gadget_bar.add_theme_stylebox_override("fill", pfill)
+	elif slot.gadget == &"":
 		_gadget_label.text = "no gadget  ·  drive through a glowing box"
 		_gadget_label.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85, 0.8))
 		_gadget_bar.value = 0.0

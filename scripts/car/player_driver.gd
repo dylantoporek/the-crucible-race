@@ -24,3 +24,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		reset_requested.emit()
 	elif event.is_action_pressed("use_gadget"):
 		car.gadget_slot.try_use()
+	elif event.is_action_pressed("gadget_prev"):
+		car.gadget_slot.cycle(-1)
+	elif event.is_action_pressed("gadget_next"):
+		car.gadget_slot.cycle(1)

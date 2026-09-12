@@ -6,9 +6,12 @@ extends Node
 signal changed
 signal used(id: StringName)
 
+const PIT_WINDOW := 6.0    ## Seconds after a pit stop in which the gadget can be swapped
+
 var gadget: StringName = &""
 var cooldown := 0.0        ## Seconds until it can be used again
 var active := 0.0          ## Seconds the current effect has left
+var pit_window := 0.0      ## Seconds left to choose a gadget after a pit stop
 
 var car: RaycastCar
 
@@ -27,6 +30,36 @@ func give(id: StringName) -> bool:
 	gadget = id
 	changed.emit()
 	return true
+
+
+## A pit stop opens a short window in which the driver can pick any gadget. A car that
+## arrives empty-handed is handed one straight away, so the window always has something to
+## change. The cooldown carries over like any other swap.
+func open_pit(seconds: float = PIT_WINDOW) -> void:
+	pit_window = maxf(pit_window, seconds)
+	if gadget == &"":
+		give(Gadgets.any_id())
+	changed.emit()
+
+
+func in_pit() -> bool:
+	return pit_window > 0.0
+
+
+## Choose a specific gadget. Only works during the pit window.
+func select(id: StringName) -> bool:
+	if not in_pit():
+		return false
+	return give(id)
+
+
+## Step to the next (+1) or previous (-1) gadget in the roster, during the pit window.
+func cycle(dir: int) -> bool:
+	if not in_pit() or gadget == &"":
+		return false
+	var ids: Array = Gadgets.ids()
+	var i := ids.find(gadget)
+	return give(ids[posmod(i + dir, ids.size())])
 
 
 func can_use() -> bool:
@@ -49,12 +82,15 @@ func reset() -> void:
 	gadget = &""
 	cooldown = 0.0
 	active = 0.0
+	pit_window = 0.0
 	changed.emit()
 
 
 func _process(delta: float) -> void:
 	if cooldown > 0.0:
 		cooldown = maxf(cooldown - delta, 0.0)
+	if pit_window > 0.0:
+		pit_window = maxf(pit_window - delta, 0.0)
 	if active > 0.0:
 		active -= delta
 		if active <= 0.0:

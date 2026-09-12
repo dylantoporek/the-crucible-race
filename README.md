@@ -53,6 +53,7 @@ godot --headless --path . --export-release "Web" build/web/index.html
 | Handbrake | Space | X |
 | Reset to track | R | Y |
 | Use gadget | Shift or E | A |
+| Change gadget (after a pit stop) | Q / Tab | LB / RB |
 | Restart the field at stage 1–6 | 1–6 | |
 | Toggle HUD | F1 | |
 
@@ -118,14 +119,20 @@ back to the full scan on a cache miss or when a body is reset or teleported.
   do. Damage cuts engine power (up to half) and top speed (up to a quarter), makes the car
   pull toward the side it was hit on, darkens the paint and adds smoke past 50%. At zero
   the car is crippled but still drives.
-- **Repair stations.** Green pads at the side of the road at the Waypoint Village pit, the
-  entrance to Foothill City and the summit. Drive onto one for a full repair; it costs you
-  the racing line. AI below 45% health will divert to the next one.
-- **Gadgets.** Glowing boxes sit on the road about every 480 m, one per spot. The first car
-  to drive through one that is not already armed takes it; a car that already holds a
-  gadget passes straight through and leaves it. Boxes do not come back until the race
-  restarts. A gadget is kept for the whole race and can be used again after a 20 s
+- **Repair stations / pits.** Green pads at the side of the road at the Waypoint Village
+  pit, the entrance to Foothill City and the summit. Drive onto one for a full repair; it
+  costs you the racing line. AI below 45% health will divert to the next one. A pit stop
+  also opens a 6 s window in which you can pick any gadget with Q / Tab (LB / RB); a car
+  that arrives without one is handed one. Swapping keeps whatever cooldown you had.
+- **Gadgets.** A row of three glowing boxes sits across the road about every 480 m. The
+  first car to drive through one that is not already armed takes it; a car that already
+  holds a gadget passes straight through and leaves it. Boxes do not come back until the
+  race restarts. A gadget is kept for the whole race and can be used again after a 20 s
   cooldown. Shift, E or the A button fires it.
+- **Two kinds of opponent.** Every other grid slot is a **bruiser** (black bar across the
+  nose): it leans on you whenever it is alongside and pits for a shield or oil. The rest
+  are **racers**: they give everyone room, chase the win, and pit for boost or jump.
+  Set in `_spawn_car` in `scripts/game/game.gd`.
 
 | Gadget | What it does |
 |---|---|

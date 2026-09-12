@@ -128,13 +128,40 @@ func _spawn_car(index: int, is_player: bool) -> RaycastCar:
 		ai.name = "AIDriver"
 		ai.track = track
 		ai.lane_offset = randf_range(-0.45, 0.45)
-		ai.aggression = randf_range(0.3, 0.9)
-		ai.skill = randf_range(0.88, 1.02)
+		ai.others = cars
+		# Every other grid slot is a bruiser; the rest would rather win than trade paint.
+		if index % 2 == 0:
+			ai.style = AIDriver.BRUISER
+			ai.aggression = randf_range(0.55, 0.9)
+			ai.skill = randf_range(0.86, 0.98)
+			ai.preferred_gadget = [&"shield", &"oil"][randi() % 2]
+			_add_bull_bar(car)
+		else:
+			ai.style = AIDriver.RACER
+			ai.aggression = 0.0
+			ai.skill = randf_range(0.92, 1.04)
+			ai.preferred_gadget = [&"boost", &"jump"][randi() % 2]
 		car.add_child(ai)
 	cars.append(car)
 	_grid_slot[car] = index
 	_progress[car] = track.body_progress(car)
 	return car
+
+
+## A black bar across the nose marks a bruiser, so you can see who to keep away from.
+func _add_bull_bar(car: RaycastCar) -> void:
+	var body := car.get_node("Visual/Body") as MeshInstance3D
+	var aabb := body.get_aabb()
+	var bar := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(aabb.size.x + 0.1, 0.34, 0.18)
+	bar.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.08, 0.08, 0.09)
+	mat.roughness = 0.6
+	bar.material_override = mat
+	bar.position = body.position + Vector3(0.0, aabb.position.y + aabb.size.y * 0.55, aabb.position.z - 0.02)
+	body.get_parent().add_child(bar)
 
 
 ## Hold the field on the grid: READY, SET, then release on GO.
