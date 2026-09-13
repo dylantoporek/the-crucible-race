@@ -87,7 +87,10 @@ func reset() -> void:
 	changed.emit()
 
 
-func _process(delta: float) -> void:
+## Physics time, not frame time: the jump cooldown and the reset immunity are counted in
+## physics steps, and a gadget cooldown that drifts against them whenever the renderer falls
+## behind is the kind of inconsistency nobody can reproduce on purpose.
+func _physics_process(delta: float) -> void:
 	if cooldown > 0.0:
 		cooldown = maxf(cooldown - delta, 0.0)
 	if pit_window > 0.0:

@@ -186,6 +186,15 @@ Definitions live in `scripts/gadgets/gadget_defs.gd`; effects in `scripts/car/ga
   about the same time as the others, that it peels clear of the main road within 30 m, and
   that the barrier opens at the fork.
 
+## The camera on a slope
+
+The chase camera reads the road's gradient 26 m ahead and, on a descent, lifts a little
+and aims further down the hill so the road fills the screen instead of the horizon. It
+reads the course rather than the car, so it starts leaning before the car tips over a
+crest. Uphill and flat are untouched. It keeps its own cursor on the track: asking the
+track where a car is caches that answer against the current physics frame, and a camera
+running every drawn frame would be answering the drivers' question at the wrong moment.
+
 ## Changing the map
 
 Everything about the course lives in `scripts/track/route_spec.gd`. Each stage declares how
@@ -227,6 +236,7 @@ first:
 | Softer / stiffer ride | `spring_stiffness`, `damping_*` on each wheel |
 | Less body roll | `anti_roll`, `center_of_mass` |
 | Sand feels heavier | `sink_drag` on the car, `sink` on the surface |
+| More / less camera lean on a descent | `slope_rise`, `slope_aim_ahead` on `ChaseCamera` |
 
 ## Layout
 

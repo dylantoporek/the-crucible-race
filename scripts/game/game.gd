@@ -51,6 +51,7 @@ func _ready() -> void:
 		var ai := _spawn_car(i, false)
 		(ai.get_node("AIDriver") as AIDriver).rival = player
 	camera.target = player
+	camera.track = track
 	camera.snap_behind_target()
 	hud.setup(self)
 	var requested := _stage_from_url()

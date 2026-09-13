@@ -607,6 +607,14 @@ func _offset_near_curve(c: Curve3D, len: float, local: Vector3, hint: float, rad
 	return clampf(fine, 0.0, len)
 
 
+## Nearest offset to a world position, searched around a hint the caller keeps for itself.
+## Unlike track_offset() this touches no shared state, so anything that only wants to look
+## at the road — a camera, a readout — can ask without disturbing the per-body cursors the
+## drivers depend on.
+func offset_near(global_pos: Vector3, hint: float, radius: float = 30.0) -> float:
+	return _offset_near_curve(curve, length, to_local(global_pos), hint, radius)
+
+
 func _offset_near(global_pos: Vector3, hint: float) -> float:
 	return _offset_near_curve(curve, length, to_local(global_pos), hint, CURSOR_RADIUS)
 
